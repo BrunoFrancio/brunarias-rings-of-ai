@@ -2,7 +2,7 @@
 
 Anéis presos na borda da tela do Windows mostrando quanto sobra da cota do Claude Code e do Codex. A ideia vem do [Pulse](https://github.com/qunqin24/Pulse), que só existe para macOS. Este é um app próprio, escrito em Rust, e não uma cópia do código dele.
 
-Estado em 06/11/2026: só a prova da janela, com números fixos. Ainda não lê cota nenhuma.
+Estado em 07/11/2026: lê a cota do Claude pelo login do Claude Code de terminal e renova o login sozinho. O Codex ainda não entrou.
 
 ## Rodar
 
