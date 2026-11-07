@@ -18,8 +18,18 @@ fn keep_reading(reading: Reading, ctx: egui::Context) {
         let fresh = claude::read_windows();
         *reading.lock().unwrap() = fresh;
         ctx.request_repaint();
-        std::thread::sleep(std::time::Duration::from_secs(180));
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        release_idle_pages();
+        std::thread::sleep(std::time::Duration::from_secs(178));
     });
+}
+
+// O driver de vídeo e a primeira conexão tocam ~50 MB que não voltam a ser usados.
+// O Windows só os devolve quando falta RAM, e até lá o Gerenciador de Tarefas os conta.
+// Medido: de 85 MB para cerca de 8 MB, que é o que o app usa de fato.
+fn release_idle_pages() {
+    use windows_sys::Win32::System::{ProcessStatus::K32EmptyWorkingSet, Threading::GetCurrentProcess};
+    unsafe { K32EmptyWorkingSet(GetCurrentProcess()) };
 }
 
 struct App {

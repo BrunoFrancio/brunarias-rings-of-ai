@@ -8,4 +8,4 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts"] }
 serde_json = "1"
 ureq = "3"
-windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_System_ProcessStatus"] }

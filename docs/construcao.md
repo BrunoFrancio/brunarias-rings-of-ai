@@ -63,3 +63,26 @@ A linha de 1 pixel só sumiu com o terceiro ajuste. Antes disso, ela parecia um 
 - Os anéis mostraram os números reais, e o cartão, a hora da renovação.
 
 **Ponto de atenção.** A memória privada subiu de cerca de 100 MB para 180 MB depois da leitura pela rede. Ainda não foi investigado se vem do TLS (`rustls`), da linha de execução ou de outra coisa.
+
+## 07/11/2026: a memória
+
+**A dúvida.** Depois da leitura pela rede, o app parecia ter passado de cerca de 100 MB para 180 MB.
+
+**O que foi medido.** A coluna "Memória" do Gerenciador de Tarefas é o conjunto de trabalho privado, a parte da memória do app que está de fato na RAM. Ela é diferente da memória privada reservada, que era o número usado antes. Medindo a coluna certa, 20 s depois de abrir:
+
+| Caso | Gerenciador de Tarefas | Reservada |
+| --- | --- | --- |
+| `glow`, anéis com números fixos, sem rede | 53 MB | 101 MB |
+| `glow`, números fixos chegando 1 s depois por outra linha de execução | 53 MB | 102 MB |
+| `glow`, leitura real pela rede | 85 MB | 102 MB |
+| `wgpu`, números fixos | 116 MB | 384 MB |
+| `wgpu`, leitura real | 95 MB | 351 MB |
+
+- O `wgpu` carrega três drivers da AMD (Vulkan, DirectX 12 e OpenGL) e foi descartado.
+- No `glow`, a maior parte vem do driver OpenGL da AMD (`atio6axx.dll`).
+- Um programa mínimo que só faz a mesma chamada HTTPS com o `ureq` ocupa menos de 1 MB. A rede em si não é o peso.
+- Pedindo ao Windows para liberar as páginas paradas (`EmptyWorkingSet`), os dois casos do `glow` caem para 3 MB e se estabilizam em 7 a 8 MB. O app usa de fato cerca de 8 MB. O resto são páginas tocadas uma vez, na abertura do driver e na primeira conexão, que o Windows deixa na RAM até precisar.
+
+**A mudança.** Dois segundos depois de cada leitura, o app chama `K32EmptyWorkingSet` em si mesmo. Medido depois disso: 2,4 MB aos 3 s, 7,9 MB aos 30 s, 8,8 MB aos 60 s, 5,7 MB depois de um hover, com o processador em 0,01%. Os anéis e o cartão continuaram desenhando normalmente.
+
+**O que isso não muda.** A memória reservada continua em cerca de 100 MB, quase toda do driver de vídeo. Ela não ocupa RAM enquanto não é usada.
