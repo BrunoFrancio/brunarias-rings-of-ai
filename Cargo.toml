@@ -1,0 +1,8 @@
+[package]
+name = "aneis-de-cota"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts"] }
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_Controls", "Win32_Graphics_Gdi"] }
