@@ -89,7 +89,10 @@ enum Fetch {
 }
 
 fn fetch(token: &str) -> Fetch {
-    let response = ureq::get("https://api.anthropic.com/api/oauth/usage")
+    // Sem limite, uma rede caída no meio da resposta prende a leitura das três cotas.
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(15))).build().into();
+    let response = agent
+        .get("https://api.anthropic.com/api/oauth/usage")
         .header("Authorization", &format!("Bearer {token}"))
         .header("anthropic-beta", "oauth-2025-04-20")
         .header("User-Agent", "claude-cli (external, cli)")

@@ -44,6 +44,20 @@ pub fn after_reset(windows: &[Window], now: chrono::DateTime<chrono::Utc>) -> Ve
         .collect()
 }
 
+const TAIL: u64 = 1 << 20;
+
+/// Fim do arquivo, até `max` bytes. Sessões passam de 15 MB e a cota fica no fim.
+/// A primeira linha pode vir cortada; ela não é JSON e cai fora em `latest_rate_limits`.
+fn read_tail(path: &std::path::Path, max: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(max))).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// Lê a sessão mais recente do Codex deste Windows que tenha cota gravada.
 /// O Codex do WSL parou em outubro de 2026 e fica de fora.
 pub fn read_windows() -> Result<Vec<Window>, String> {
@@ -63,7 +77,7 @@ pub fn read_windows() -> Result<Vec<Window>, String> {
     }
     files.sort_by(|a, b| b.0.cmp(&a.0));
     for (_, path) in files.iter().take(8) {
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let Some(text) = read_tail(path, TAIL) else { continue };
         if let Some(rl) = latest_rate_limits(text.lines()) {
             let windows = windows_from(&rl);
             if !windows.is_empty() {
@@ -103,6 +117,17 @@ mod tests {
                 Window { label: "Codex · 7 dias".into(), used: 0.09, resets_at: Some("2026-11-13T12:22:04+00:00".into()) },
             ]
         );
+    }
+
+    #[test]
+    fn only_the_end_of_a_big_session_is_read() {
+        let path = std::env::temp_dir().join(format!("codex-tail-{}.jsonl", std::process::id()));
+        let filler = format!("{{\"payload\":\"{}\"}}\n", "x".repeat(10_000));
+        std::fs::write(&path, format!("{OLD}\n{filler}{NEW}\n")).unwrap();
+        let tail = read_tail(&path, 4096).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(tail.len() <= 4096);
+        assert_eq!(latest_rate_limits(tail.lines()).unwrap()["primary"]["used_percent"], 1.0);
     }
 
     #[test]

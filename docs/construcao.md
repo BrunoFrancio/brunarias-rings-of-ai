@@ -246,3 +246,25 @@ Bruno queria o ícone do Antigravity como aparece na barra de tarefas: o quadrad
 ## 09/11/2026: mais espaço nos rótulos do trilho
 
 Bruno achou os rótulos embaixo dos anéis (5h, 7d, G5h) apertados. O rótulo descia só 0,75 px abaixo do anel e terminava colado no anel seguinte. Ele desceu 2,5 px, e cada anel aberto passou de 42 para 48 px de altura. Agora ficam uns 3 px acima do rótulo e uns 5 px abaixo. Os 24 testes continuam passando. O teste de altura usa a constante, então não mudou. Conferido na tela.
+
+## 09/11/2026: revisão, nome novo e repositório
+
+**Nome.** Bruno escolheu **Brunarias Rings of AI**. O pacote, o executável, o título da janela e o repositório passam a se chamar `brunarias-rings-of-ai`. A pasta local também muda de nome.
+
+**Revisão do projeto inteiro com a `ponytail-review`.** Foram sete achados, e todos foram corrigidos antes do primeiro envio:
+
+1. A chamada ao Claude não tinha limite de tempo, porque a `ureq` 3 vem sem nenhum por padrão (`config.rs` da `ureq` 3.5.1, `Timeouts::default`). Com a rede caindo no meio da resposta, a leitura das três cotas parava para sempre. Agora o limite é de 15 s, igual ao do Antigravity.
+2. O README ainda dizia que o Codex não tinha entrado. Ele foi reescrito com as três fontes, o limite de cada uma e o `--ler`.
+3. A janela semanal só do Opus também virava "7d". Agora vira "O7d".
+4. O alerta de 85% contava janelas que só aparecem no cartão, como o Argon. Agora ele conta só as que estão no trilho.
+5. Com duas cópias abertas, as duas achavam a mesma janela pelo título. Agora, ao abrir, o app cria uma trava com nome no Windows (`CreateMutexW`, que pede a feature `Win32_Security`). Se a trava já existe, a segunda cópia fecha.
+6. `main.rs` misturava as chamadas ao Windows com o desenho. Cursor, janela, moldura, clique que atravessa e memória foram para `src/win32.rs`, sem mudar o comportamento.
+7. O Codex lia o arquivo de sessão inteiro, e há sessões de 15 MB. Agora ele lê só o último 1 MB. O limite: se a última rodada do Codex escrever mais de 1 MB depois do último registro de cota, o app pega a cota de uma sessão anterior.
+
+**Testes.** Três testes novos, um para o rótulo do Opus, um para o alerta e um para a leitura só do fim. Os três falharam antes da correção (RED), cada um pelo motivo esperado. Depois, os 27 passaram (GREEN). Os itens 1, 2, 5 e 6 não têm teste automático: limite de tempo de rede, texto, trava do Windows e troca de lugar sem mudar o comportamento.
+
+**Conferido.**
+- `--ler` leu os três agentes em 0,6 s.
+- O executável aberto duas vezes deixou um processo só.
+- Na tela, com o Claude em 89%, o trilho ficou aberto sozinho e o cartão apareceu certo.
+- Memória com o trilho aberto o tempo todo: sobe até 38 MB e cai para 14 MB na limpeza de 3 em 3 minutos. Nas medições anteriores, com o trilho em repouso, o pico era de 15 MB. A diferença vinda do trilho aberto não foi isolada.

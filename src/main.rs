@@ -4,11 +4,12 @@ mod antigravity;
 mod claude;
 mod codex;
 mod quota;
+mod win32;
 
 use eframe::egui::{self, Color32, FontFamily, FontId, Pos2, Rect, Stroke, Vec2};
 use std::f32::consts::TAU;
 
-const TITLE: &str = "aneis-de-cota";
+const TITLE: &str = "brunarias-rings-of-ai";
 const WIDTH: f32 = 340.0; // cartão de 290 + folga de 8 + trilho de 38 + margem
 const HEIGHT: f32 = 640.0; // cabe o cartão aberto: 3 janelas do Claude, 2 do Codex e 5 do Antigravity
 const RAIL: f32 = 38.0;
@@ -57,17 +58,9 @@ fn keep_reading(reading: Reading, ctx: egui::Context) {
         *reading.lock().unwrap() = fresh;
         ctx.request_repaint();
         std::thread::sleep(std::time::Duration::from_secs(2));
-        release_idle_pages();
+        win32::release_idle_pages();
         std::thread::sleep(std::time::Duration::from_secs(178));
     });
-}
-
-// O driver de vídeo e a primeira conexão tocam ~50 MB que não voltam a ser usados.
-// O Windows só os devolve quando falta RAM, e até lá o Gerenciador de Tarefas os conta.
-// Medido: de 85 MB para cerca de 8 MB, que é o que o app usa de fato.
-fn release_idle_pages() {
-    use windows_sys::Win32::System::{ProcessStatus::K32EmptyWorkingSet, Threading::GetCurrentProcess};
-    unsafe { K32EmptyWorkingSet(GetCurrentProcess()) };
 }
 
 struct App {
@@ -75,81 +68,6 @@ struct App {
     icons: Vec<egui::TextureHandle>,
     placed: bool,
     passthrough: bool,
-}
-
-fn cursor() -> Option<(i32, i32)> {
-    use windows_sys::Win32::{Foundation::POINT, UI::WindowsAndMessaging::GetCursorPos};
-    let mut p = POINT { x: 0, y: 0 };
-    (unsafe { GetCursorPos(&mut p) } != 0).then_some((p.x, p.y))
-}
-
-fn own_window() -> Option<windows_sys::Win32::Foundation::HWND> {
-    let title: Vec<u16> = TITLE.encode_utf16().chain(Some(0)).collect();
-    let hwnd = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(std::ptr::null(), title.as_ptr()) };
-    (!hwnd.is_null()).then_some(hwnd)
-}
-
-// Borda direita e topo da janela, em pixels da tela.
-fn window_rect() -> Option<(i32, i32)> {
-    let hwnd = own_window()?;
-    let mut r = unsafe { std::mem::zeroed::<windows_sys::Win32::Foundation::RECT>() };
-    (unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut r) } != 0).then_some((r.right, r.top))
-}
-
-// Deixa o clique atravessar a janela, ou não. São os mesmos bits que o winit liga,
-// mas o comando dele reaplica todos os estilos e a moldura pisca por um quadro.
-fn set_passthrough(on: bool) -> bool {
-    use windows_sys::Win32::UI::WindowsAndMessaging::*;
-    let Some(hwnd) = own_window() else { return false };
-    unsafe {
-        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-        let bits = WS_EX_TRANSPARENT | WS_EX_LAYERED;
-        let new = if on { style | bits } else { style & !bits };
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new as isize);
-    }
-    true
-}
-
-// O Windows 11 desenha borda, canto arredondado e sombra até em janela sem moldura.
-// Roda a cada quadro e só age quando a moldura voltou, porque o winit a devolve
-// nos primeiros quadros, depois da primeira limpeza.
-fn strip_frame() {
-    use windows_sys::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmSetWindowAttribute};
-    use windows_sys::Win32::UI::Controls::MARGINS;
-    use windows_sys::Win32::UI::WindowsAndMessaging::*;
-    let Some(hwnd) = own_window() else { return };
-    let frame = WS_CAPTION | WS_THICKFRAME | WS_SYSMENU;
-    if unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32 & frame == 0 {
-        return;
-    }
-    let set = |attr: u32, value: u32| unsafe {
-        DwmSetWindowAttribute(hwnd, attr, &value as *const u32 as _, 4);
-    };
-    set(2, 1); // DWMWA_NCRENDERING_POLICY = DISABLED: sem sombra
-    set(33, 1); // DWMWA_WINDOW_CORNER_PREFERENCE = DONOTROUND
-    set(34, 0xFFFF_FFFE); // DWMWA_BORDER_COLOR = NONE
-    let margins = MARGINS { cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 0, cyBottomHeight: 0 };
-    unsafe {
-        DwmExtendFrameIntoClientArea(hwnd, &margins);
-        let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
-        let clean = (style & !frame) | WS_POPUP;
-        SetWindowLongPtrW(hwnd, GWL_STYLE, clean as isize);
-        SetWindowPos(
-            hwnd,
-            std::ptr::null_mut(),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-        );
-        // O winit guarda 1 px no topo para a sombra, e ele aparece como linha.
-        // A região da janela começa abaixo dele.
-        let mut r = std::mem::zeroed();
-        GetWindowRect(hwnd, &mut r);
-        let rgn = windows_sys::Win32::Graphics::Gdi::CreateRectRgn(0, 1, r.right - r.left, r.bottom - r.top);
-        windows_sys::Win32::Graphics::Gdi::SetWindowRgn(hwnd, rgn, 1);
-    }
 }
 
 fn usage_color(used: f32) -> Color32 {
@@ -193,15 +111,26 @@ fn window_name(w: &quota::Window) -> &str {
     w.label.split_once(" · ").map_or(&w.label, |(_, name)| name)
 }
 
-// Rótulo curto embaixo do anel: "5h", "7d", "60m". No Antigravity vem com a
-// inicial do grupo: "G5h" (Gemini), "C7d" (Claude e GPT), "A7d" (Argon).
+// Alguma cota alta deixa o trilho aberto. Conta só o que aparece no trilho,
+// senão ele abre por um anel que não mostra.
+fn alert(reading: &[Source], now: chrono::DateTime<chrono::Utc>) -> bool {
+    reading.iter().flatten().any(|ws| on_rail(ws).iter().any(|w| !w.stale(now) && w.used >= ALERT))
+}
+
+// Rótulo curto embaixo do anel: "5h", "7d", "60m". Com grupo ou modelo vem a inicial:
+// "G5h" (Gemini), "C7d" (Claude e GPT), "A7d" (Argon), "O7d" (Opus).
 fn short_name(w: &quota::Window) -> String {
     let name = window_name(w);
     let (group, window) = match name.find("5 h").or_else(|| name.find("7 dias")) {
         Some(at) => (name[..at].trim(), &name[at..]),
         None => ("", name),
     };
-    let window = if window.starts_with("7 dias") { "7d".into() } else { window.replace(" min", "m").replace(' ', "") };
+    // No Claude, o modelo vem depois da janela: "7 dias Opus".
+    let (group, window) = match window.strip_prefix("7 dias") {
+        Some(model) if group.is_empty() => (model.trim(), "7d".to_string()),
+        Some(_) => (group, "7d".to_string()),
+        None => (group, window.replace(" min", "m").replace(' ', "")),
+    };
     let initial = match group {
         "" => String::new(),
         "Claude e GPT" => "C".into(),
@@ -382,7 +311,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &ui.ctx().clone();
         let ppp = ctx.pixels_per_point();
-        strip_frame();
+        win32::strip_frame();
         if !self.placed {
             if let Some(size) = ctx.input(|i| i.viewport().monitor_size) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(Pos2::new(
@@ -398,14 +327,14 @@ impl eframe::App for App {
         if let Some(Ok(windows)) = reading.get_mut(CODEX) {
             *windows = codex::after_reset(windows, now);
         }
-        let alert = reading.iter().flatten().flatten().any(|w| !w.stale(now) && w.used >= ALERT);
+        let alert = alert(&reading, now);
         // A altura do teste de proximidade é a do trilho aberto, para ele não fechar
         // enquanto o mouse desce pelos anéis que acabaram de aparecer.
         let full_height = rail_height(&reading, 1.0);
 
         // Com o clique passando, a janela não recebe hover. O cursor e a posição da
         // janela vêm do Windows: a do egui fica velha logo depois de abrir.
-        let (hovering_rail, near) = match (cursor(), window_rect()) {
+        let (hovering_rail, near) = match (win32::cursor(), win32::window_rect()) {
             (Some((x, y)), Some((right, top))) => {
                 let (x, y, right, top) = (x as f32 / ppp, y as f32 / ppp, right as f32 / ppp, top as f32 / ppp);
                 let rail_left = right - MARGIN - RAIL;
@@ -415,7 +344,7 @@ impl eframe::App for App {
             }
             _ => (false, false),
         };
-        if hovering_rail == self.passthrough && set_passthrough(!hovering_rail) {
+        if hovering_rail == self.passthrough && win32::set_passthrough(!hovering_rail) {
             self.passthrough = !hovering_rail;
         }
 
@@ -476,7 +405,7 @@ fn load_icons(ctx: &egui::Context) -> Vec<egui::TextureHandle> {
 }
 
 fn main() -> eframe::Result {
-    // `aneis-de-cota --ler`: lê as cotas uma vez e mostra no terminal, sem abrir a janela.
+    // `brunarias-rings-of-ai --ler`: lê as cotas uma vez e mostra no terminal, sem abrir a janela.
     if std::env::args().any(|a| a == "--ler") {
         let now = chrono::Utc::now();
         for source in read_all() {
@@ -491,6 +420,9 @@ fn main() -> eframe::Result {
                 Err(e) => eprintln!("{e}"),
             }
         }
+        return Ok(());
+    }
+    if !win32::first_instance() {
         return Ok(());
     }
     let options = eframe::NativeOptions {
@@ -540,6 +472,23 @@ mod tests {
         ];
         let labels: Vec<String> = on_rail(&windows).into_iter().map(|w| w.label).collect();
         assert_eq!(labels, ["Antigravity · Gemini 5 h", "Antigravity · Gemini 7 dias", "Claude · 7 dias Opus"]);
+    }
+
+    #[test]
+    fn opus_week_has_its_own_label() {
+        assert_eq!(short_name(&window("Claude · 7 dias")), "7d");
+        assert_eq!(short_name(&window("Claude · 7 dias Opus")), "O7d");
+        assert_eq!(short_name(&window("Antigravity · Gemini 7 dias")), "G7d");
+    }
+
+    #[test]
+    fn only_windows_on_the_rail_raise_the_alert() {
+        let now = chrono::Utc::now();
+        let high = |label: &str| quota::Window { label: label.into(), used: 0.9, resets_at: None };
+        let argon: Vec<Source> = vec![Ok(vec![window("Antigravity · Gemini 5 h"), high("Antigravity · Gemini 4 Argon 7 dias")])];
+        assert!(!alert(&argon, now));
+        let gemini: Vec<Source> = vec![Ok(vec![high("Antigravity · Gemini 5 h")])];
+        assert!(alert(&gemini, now));
     }
 
     #[test]
