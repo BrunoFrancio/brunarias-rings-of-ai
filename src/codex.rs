@@ -34,6 +34,16 @@ pub fn windows_from(rate_limits: &Value) -> Vec<Window> {
         .collect()
 }
 
+/// Janela que já renovou conta como sem uso, a pedido do Bruno: se o Codex tivesse
+/// rodado depois disso, a sessão teria gravado uma cota nova. Uso em outra máquina não
+/// aparece aqui. A próxima renovação só se sabe quando o Codex rodar de novo.
+pub fn after_reset(windows: &[Window], now: chrono::DateTime<chrono::Utc>) -> Vec<Window> {
+    windows
+        .iter()
+        .map(|w| if w.stale(now) { Window { label: w.label.clone(), used: 0.0, resets_at: None } } else { w.clone() })
+        .collect()
+}
+
 /// Lê a sessão mais recente do Codex deste Windows que tenha cota gravada.
 /// O Codex do WSL parou em outubro de 2026 e fica de fora.
 pub fn read_windows() -> Result<Vec<Window>, String> {
@@ -93,6 +103,14 @@ mod tests {
                 Window { label: "Codex · 7 dias".into(), used: 0.09, resets_at: Some("2026-11-13T12:22:04+00:00".into()) },
             ]
         );
+    }
+
+    #[test]
+    fn renewed_window_counts_as_unused() {
+        let now = "2026-11-09T17:00:00Z".parse().unwrap();
+        let week = Window { label: "Codex · 7 dias".into(), used: 0.09, resets_at: Some("2026-11-13T12:22:04+00:00".into()) };
+        let windows = [Window { label: "Codex · 5 h".into(), used: 0.4, resets_at: Some("2026-11-09T16:00:00+00:00".into()) }, week.clone()];
+        assert_eq!(after_reset(&windows, now), vec![Window { label: "Codex · 5 h".into(), used: 0.0, resets_at: None }, week]);
     }
 
     #[test]

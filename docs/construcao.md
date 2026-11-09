@@ -232,3 +232,13 @@ Em "renova em 3 h 4", o minuto aparecia com um dígito só. Agora aparece "em 3 
 ## 09/11/2026: ícone do Antigravity arredondado
 
 Bruno queria o ícone do Antigravity como aparece na barra de tarefas: o quadrado branco com os cantos arredondados e o A no meio. O arquivo de antes tinha sido recortado rente ao A, então perdeu os cantos e, com 18 px, virava um quadrado branco. O novo vem do próprio `Antigravity.exe`, extraído em 256 px com `PrivateExtractIcons` e reduzido para 48 px sem cortar a borda. Conferido na tela, no trilho.
+
+## 09/11/2026: Codex renovado conta como sem uso
+
+**O pedido.** Bruno pediu que o Codex 5 h, que tinha renovado e não foi usado, aparecesse sem uso, e não com `?`. Os anéis mostram o quanto foi usado, então ele aparece com 0 e o anel vazio. Isso muda a regra herdada do widget do Dock, de nunca presumir 0%, mas só para o Codex.
+
+**Por que dá para presumir no Codex.** A cota do Codex vem dos arquivos de sessão deste Windows. Se o Codex tivesse rodado depois da renovação, a sessão teria gravado uma cota nova. O limite é que o uso em outra máquina ou no WSL não aparece aqui.
+
+**Como ficou.** `codex::after_reset` troca a janela vencida por uma com 0% e sem data de renovação, porque a próxima só se sabe quando o Codex rodar de novo. A troca acontece a cada quadro, então o anel não fica com `?` entre uma leitura e outra. No cartão, essa janela mostra "sem uso desde que renovou". O Antigravity continua com a regra antiga para a última leitura guardada.
+
+**Testes.** Um teste novo verifica que a janela vencida vira 0% sem data e que a semanal, ainda válida, não muda. Contra a função sem a troca, ele falhou (RED). Depois, os 24 passaram (GREEN). Conferido na tela, no trilho e no cartão.

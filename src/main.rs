@@ -31,6 +31,7 @@ const AGENTS: [(&str, &[u8]); 3] = [
     ("Codex", include_bytes!("../assets/codex.png")),
     ("Antigravity", include_bytes!("../assets/antigravity.png")),
 ];
+const CODEX: usize = 1;
 const ANTIGRAVITY: usize = 2;
 
 type Source = Result<Vec<quota::Window>, String>;
@@ -352,7 +353,11 @@ impl App {
                             let fill = Rect::from_min_max(bar.min, Pos2::new(bar.min.x + bar.width() * w.used.min(1.0), bar.max.y));
                             painter.rect_filled(fill, 2.0, usage_color(w.used));
                         }
-                        let sub = if stale { format!("já renovou · abra o {} para atualizar", AGENTS[i].0) } else { renew_line(w, now) };
+                        let sub = match (stale, w.resets_at.is_some()) {
+                            (true, _) => format!("já renovou · abra o {} para atualizar", AGENTS[i].0),
+                            (false, true) => renew_line(w, now),
+                            (false, false) => "sem uso desde que renovou".into(),
+                        };
                         painter.text(Pos2::new(left, y + 24.0), egui::Align2::LEFT_TOP, sub, FontId::proportional(11.0), SOFT);
                         y += ROW;
                     }
@@ -389,7 +394,10 @@ impl eframe::App for App {
         }
 
         let now = chrono::Utc::now();
-        let reading = self.reading.lock().unwrap().clone();
+        let mut reading = self.reading.lock().unwrap().clone();
+        if let Some(Ok(windows)) = reading.get_mut(CODEX) {
+            *windows = codex::after_reset(windows, now);
+        }
         let alert = reading.iter().flatten().flatten().any(|w| !w.stale(now) && w.used >= ALERT);
         // A altura do teste de proximidade é a do trilho aberto, para ele não fechar
         // enquanto o mouse desce pelos anéis que acabaram de aparecer.
