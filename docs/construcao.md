@@ -224,3 +224,7 @@ A resposta vem em grupos (Gemini, Claude e GPT, e Gemini 4 Argon), e cada grupo 
 **Testes.** O teste de altura do trilho mudou só nos números, que agora são de cápsulas com espaço entre elas. A regra que ele cobra continua a mesma: com o trilho meio aberto, a altura fica no meio do caminho. São 23 testes passando.
 
 **Conferido na tela.** Repouso, mouse perto e cartão, com os dados reais dos três agentes. A primeira captura parecia ter os estados trocados, mas era só a emenda entre as imagens lidas lado a lado. Uma cópia de tela pelo .NET confirmou.
+
+## 09/11/2026: minutos com dois dígitos
+
+Em "renova em 3 h 4", o minuto aparecia com um dígito só. Agora aparece "em 3 h 04". Antes de mudar o código, entrou no teste de `renew_text` um caso para 3 h 04, e ele falhou com "em 3 h 4" (RED). Depois da mudança, os 23 testes passaram (GREEN). Na tela, os casos de agora ("em 3 h" e "em 4 h 59") aparecem certos. Nenhuma janela tinha minuto abaixo de 10 na hora da captura, então o caso de dois dígitos foi conferido só pelo teste.
