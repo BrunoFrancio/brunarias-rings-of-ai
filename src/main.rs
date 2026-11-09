@@ -4,20 +4,36 @@ mod claude;
 mod codex;
 mod quota;
 
-use eframe::egui::{self, Color32, Pos2, Stroke, Vec2};
+use eframe::egui::{self, Color32, FontFamily, FontId, Pos2, Rect, Stroke, Vec2};
 use std::f32::consts::TAU;
 
 const TITLE: &str = "aneis-de-cota";
-const WIDTH: f32 = 340.0; // cartão de 268 + folga de 8 + trilho de 56
-const HEIGHT: f32 = 320.0;
-const RAIL: f32 = 56.0;
-const STEP: f32 = 58.0; // distância entre os anéis
+const WIDTH: f32 = 340.0; // cartão de 260 + folga de 8 + trilho de 52 + margem
+const HEIGHT: f32 = 380.0; // cabe três janelas do Claude e duas do Codex
+const RAIL: f32 = 52.0;
+const MARGIN: f32 = 4.0; // entre o trilho e a borda da tela
+const CARD: f32 = 260.0;
+const PAD: f32 = 8.0;
+const ICON: f32 = 20.0;
+const HEADER: f32 = ICON + 6.0;
+const SLOT: f32 = 56.0; // anel de 38 + rótulo + folga
+const SEP: f32 = 9.0;
+const RESTING: f32 = 0.45; // opacidade com o mouse longe
+const ALERT: f32 = 0.85;
 
-// Última leitura de cada fonte: janelas ou o motivo de não ter lido.
+// Agentes na ordem do trilho. O ícone é o do app instalado de cada um.
+const AGENTS: [(&str, &[u8]); 2] = [
+    ("Claude", include_bytes!("../assets/claude.png")),
+    ("Codex", include_bytes!("../assets/codex.png")),
+];
+
+type Source = Result<Vec<quota::Window>, String>;
+
+// Última leitura de cada agente, na ordem de AGENTS.
 // Uma fonte com erro não esconde a outra.
-type Reading = std::sync::Arc<std::sync::Mutex<Vec<Result<Vec<quota::Window>, String>>>>;
+type Reading = std::sync::Arc<std::sync::Mutex<Vec<Source>>>;
 
-fn read_all() -> Vec<Result<Vec<quota::Window>, String>> {
+fn read_all() -> Vec<Source> {
     vec![claude::read_windows(), codex::read_windows()]
 }
 
@@ -42,6 +58,7 @@ fn release_idle_pages() {
 
 struct App {
     reading: Reading,
+    icons: Vec<egui::TextureHandle>,
     placed: bool,
     stripped: bool,
     passthrough: bool,
@@ -94,39 +111,168 @@ fn strip_frame() -> bool {
     true
 }
 
-fn ring(painter: &egui::Painter, center: Pos2, radius: f32, used: f32, stale: bool) {
-    painter.circle_stroke(center, radius, Stroke::new(5.0, Color32::from_white_alpha(40)));
-    // Janela que já renovou: o uso de agora é desconhecido, então nada de arco.
-    if stale {
-        painter.text(center, egui::Align2::CENTER_CENTER, "?", egui::FontId::proportional(16.0), Color32::GRAY);
-        return;
-    }
-    let color = if used < 0.6 {
-        Color32::from_rgb(80, 200, 120)
-    } else if used < 0.85 {
-        Color32::from_rgb(240, 180, 60)
+fn usage_color(used: f32) -> Color32 {
+    if used >= ALERT {
+        Color32::from_rgb(226, 75, 74)
+    } else if used >= 0.6 {
+        Color32::from_rgb(239, 159, 39)
     } else {
-        Color32::from_rgb(230, 80, 70)
-    };
-    let steps = 64;
-    let points: Vec<Pos2> = (0..=((steps as f32 * used) as usize))
-        .map(|i| center + Vec2::angled(-TAU / 4.0 + TAU * i as f32 / steps as f32) * radius)
-        .collect();
-    painter.add(egui::Shape::line(points, Stroke::new(5.0, color)));
+        Color32::from_rgb(93, 202, 165)
+    }
 }
 
-fn card_line(w: &quota::Window, now: chrono::DateTime<chrono::Utc>) -> String {
-    if w.stale(now) {
-        let agent = w.label.split(" · ").next().unwrap_or("agente");
-        return format!("{}: já renovou\nabra o {agent} para atualizar", w.label);
+const GRAY: Color32 = Color32::from_rgb(154, 154, 154);
+
+fn ring(painter: &egui::Painter, center: Pos2, w: &quota::Window, stale: bool) {
+    let radius = 15.0;
+    painter.circle_stroke(center, radius, Stroke::new(4.0, Color32::from_white_alpha(36)));
+    // Janela que já renovou: o uso de agora é desconhecido, então nada de arco.
+    if stale {
+        painter.text(center, egui::Align2::CENTER_CENTER, "?", FontId::proportional(13.0), GRAY);
+        return;
     }
-    let reset = w
-        .resets_at
+    let steps = 64;
+    let points: Vec<Pos2> = (0..=((steps as f32 * w.used.min(1.0)) as usize))
+        .map(|i| center + Vec2::angled(-TAU / 4.0 + TAU * i as f32 / steps as f32) * radius)
+        .collect();
+    painter.add(egui::Shape::line(points, Stroke::new(4.0, usage_color(w.used))));
+    let pct = format!("{:.0}", w.used * 100.0);
+    painter.text(center, egui::Align2::CENTER_CENTER, pct, FontId::proportional(11.0), Color32::from_gray(238));
+}
+
+// "Claude · 7 dias Opus" → "7 dias Opus".
+fn window_name(w: &quota::Window) -> &str {
+    w.label.split_once(" · ").map_or(&w.label, |(_, name)| name)
+}
+
+// Rótulo curto embaixo do anel: "5h", "7d", "60m".
+fn short_name(w: &quota::Window) -> String {
+    let name = window_name(w);
+    if name.starts_with("7 dias") {
+        "7d".into()
+    } else {
+        name.replace(" min", "m").replace(' ', "")
+    }
+}
+
+fn renew_line(w: &quota::Window, now: chrono::DateTime<chrono::Utc>) -> String {
+    w.resets_at
         .as_deref()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|t| t.with_timezone(&chrono::Local).format("renova %d/%m às %H:%M").to_string())
-        .unwrap_or_default();
-    format!("{}: {:.0}% usado\n{reset}", w.label, w.used * 100.0)
+        .map(|t| format!("renova {}", quota::renew_text(t.with_timezone(&chrono::Local).fixed_offset(), now)))
+        .unwrap_or_default()
+}
+
+fn group_height(source: &Source) -> f32 {
+    HEADER + source.as_ref().map_or(SLOT, |ws| ws.len() as f32 * SLOT)
+}
+
+fn rail_height(reading: &[Source]) -> f32 {
+    let groups: f32 = reading.iter().map(group_height).sum();
+    2.0 * PAD + groups + SEP * reading.len().saturating_sub(1) as f32
+}
+
+fn title_font() -> FontId {
+    FontId::new(14.0, FontFamily::Name("semibold".into()))
+}
+
+impl App {
+    fn icon(&self, painter: &egui::Painter, center: Pos2, agent: usize, size: f32) {
+        let rect = Rect::from_center_size(center, Vec2::splat(size));
+        let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        painter.image(self.icons[agent].id(), rect, uv, Color32::WHITE);
+    }
+
+    fn draw_rail(&self, painter: &egui::Painter, rail: Rect, reading: &[Source], now: chrono::DateTime<chrono::Utc>, lit: f32) {
+        let bg = egui::lerp(56.0..=217.0, lit) as u8;
+        painter.rect_filled(rail, 14.0, Color32::from_rgba_unmultiplied(18, 18, 20, bg));
+        let x = rail.center().x;
+        let mut y = rail.min.y + PAD;
+        for (i, source) in reading.iter().enumerate() {
+            if i > 0 {
+                let mid = y + SEP / 2.0;
+                painter.line_segment([Pos2::new(x - 13.0, mid), Pos2::new(x + 13.0, mid)], Stroke::new(1.0, Color32::from_white_alpha(30)));
+                y += SEP;
+            }
+            self.icon(painter, Pos2::new(x, y + ICON / 2.0), i, ICON);
+            y += HEADER;
+            match source {
+                Ok(windows) => {
+                    for w in windows {
+                        ring(painter, Pos2::new(x, y + 19.0), w, w.stale(now));
+                        let label = short_name(w);
+                        painter.text(Pos2::new(x, y + 40.0), egui::Align2::CENTER_TOP, label, FontId::monospace(11.0), Color32::from_gray(168));
+                        y += SLOT;
+                    }
+                }
+                Err(_) => {
+                    painter.text(Pos2::new(x, y + 19.0), egui::Align2::CENTER_CENTER, "!", FontId::proportional(16.0), usage_color(1.0));
+                    y += SLOT;
+                }
+            }
+        }
+    }
+
+    fn draw_card(&self, painter: &egui::Painter, top_right: Pos2, reading: &[Source], now: chrono::DateTime<chrono::Utc>) {
+        const ROW: f32 = 40.0;
+        const LABEL: f32 = 64.0;
+        let inner = CARD - 28.0;
+        let errors: Vec<Option<std::sync::Arc<egui::Galley>>> = reading
+            .iter()
+            .map(|s| s.as_ref().err().map(|e| painter.layout(e.clone(), FontId::proportional(12.0), GRAY, inner)))
+            .collect();
+        let body: f32 = reading
+            .iter()
+            .zip(&errors)
+            .map(|(s, e)| 26.0 + s.as_ref().map_or_else(|_| e.as_ref().map_or(0.0, |g| g.size().y + 8.0), |ws| ws.len() as f32 * ROW))
+            .sum();
+        let height = 24.0 + body + 12.0 * reading.len().saturating_sub(1) as f32;
+        let card = Rect::from_min_size(Pos2::new(top_right.x - CARD, top_right.y), Vec2::new(CARD, height));
+        painter.rect(card, 12.0, Color32::from_rgb(29, 30, 33), Stroke::new(0.5, Color32::from_white_alpha(26)), egui::StrokeKind::Inside);
+
+        let left = card.min.x + 14.0;
+        let right = card.max.x - 14.0;
+        let mut y = card.min.y + 12.0;
+        for (i, source) in reading.iter().enumerate() {
+            if i > 0 {
+                painter.line_segment([Pos2::new(left, y + 2.0), Pos2::new(right, y + 2.0)], Stroke::new(1.0, Color32::from_white_alpha(20)));
+                y += 12.0;
+            }
+            self.icon(painter, Pos2::new(left + 9.0, y + 9.0), i, 18.0);
+            painter.text(Pos2::new(left + 26.0, y + 9.0), egui::Align2::LEFT_CENTER, AGENTS[i].0, title_font(), Color32::from_gray(238));
+            y += 26.0;
+            match source {
+                Ok(windows) => {
+                    for w in windows {
+                        let mid = y + 8.0;
+                        painter.text(Pos2::new(left, mid), egui::Align2::LEFT_CENTER, window_name(w), FontId::proportional(13.0), Color32::from_gray(238));
+                        let sub_pos = Pos2::new(left + LABEL, y + 18.0);
+                        if w.stale(now) {
+                            painter.text(Pos2::new(left + LABEL, mid), egui::Align2::LEFT_CENTER, "já renovou", FontId::proportional(13.0), GRAY);
+                            let hint = format!("abra o {} para atualizar", AGENTS[i].0);
+                            painter.text(sub_pos, egui::Align2::LEFT_TOP, hint, FontId::proportional(11.0), GRAY);
+                        } else {
+                            let bar = Rect::from_min_max(Pos2::new(left + LABEL, mid - 2.5), Pos2::new(right - 42.0, mid + 2.5));
+                            painter.rect_filled(bar, 3.0, Color32::from_white_alpha(26));
+                            let fill = Rect::from_min_max(bar.min, Pos2::new(bar.min.x + bar.width() * w.used.clamp(0.0, 1.0), bar.max.y));
+                            painter.rect_filled(fill, 3.0, usage_color(w.used));
+                            let pct = format!("{:.0}%", w.used * 100.0);
+                            painter.text(Pos2::new(right, mid), egui::Align2::RIGHT_CENTER, pct, FontId::proportional(13.0), Color32::from_gray(238));
+                            painter.text(sub_pos, egui::Align2::LEFT_TOP, renew_line(w, now), FontId::proportional(11.0), GRAY);
+                        }
+                        y += ROW;
+                    }
+                }
+                Err(_) => {
+                    if let Some(g) = &errors[i] {
+                        let h = g.size().y;
+                        painter.galley(Pos2::new(left, y), g.clone(), GRAY);
+                        y += h + 8.0;
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -151,18 +297,20 @@ impl eframe::App for App {
         }
 
         let now = chrono::Utc::now();
-        let reading = self.reading.lock().unwrap();
-        let windows: Vec<&quota::Window> = reading.iter().flatten().flatten().collect();
-        let rail_height = 10.0 + windows.len().max(1) as f32 * STEP;
+        let reading = self.reading.lock().unwrap().clone();
+        let height = rail_height(&reading);
 
         // Com o clique passando, a janela não recebe hover. O cursor vem do Windows.
         let outer = ctx.input(|i| i.viewport().outer_rect);
-        let hovering_rail = match (cursor(), outer) {
+        let (hovering_rail, near) = match (cursor(), outer) {
             (Some((x, y)), Some(r)) => {
                 let (x, y) = (x as f32 / ppp, y as f32 / ppp);
-                x >= r.max.x - RAIL && x <= r.max.x && y >= r.min.y && y <= r.min.y + rail_height
+                let rail_left = r.max.x - MARGIN - RAIL;
+                let on = x >= rail_left && x <= r.max.x && y >= r.min.y && y <= r.min.y + height;
+                let near = x >= rail_left - 120.0 && y >= r.min.y - 60.0 && y <= r.min.y + height + 60.0;
+                (on, near)
             }
-            _ => false,
+            _ => (false, false),
         };
         if hovering_rail == self.passthrough {
             self.passthrough = !hovering_rail;
@@ -171,38 +319,58 @@ impl eframe::App for App {
             self.stripped = false;
         }
 
+        // Discreto em repouso; acende com o mouse perto ou com alguma cota alta.
+        let alert = reading.iter().flatten().flatten().any(|w| !w.stale(now) && w.used >= ALERT);
+        let target = if near || alert { 1.0 } else { RESTING };
+        let opacity = ctx.animate_value_with_time(egui::Id::unique("opacidade"), target, 0.25);
+        let lit = (opacity - RESTING) / (1.0 - RESTING);
+
         let rect = ui.max_rect();
-        let painter = ui.painter();
-        let rail = egui::Rect::from_min_size(Pos2::new(rect.max.x - RAIL, rect.min.y), Vec2::new(RAIL, rail_height));
-        painter.rect_filled(rail, 14.0, Color32::from_black_alpha(170));
-        for (i, w) in windows.iter().enumerate() {
-            let c = Pos2::new(rail.center().x, rail.min.y + 34.0 + i as f32 * STEP);
-            ring(painter, c, 18.0, w.used, w.stale(now));
-        }
-        let mut lines: Vec<String> = windows.iter().map(|w| card_line(w, now)).collect();
-        lines.extend(reading.iter().filter_map(|r| r.as_ref().err().cloned()));
+        let rail = Rect::from_min_size(Pos2::new(rect.max.x - MARGIN - RAIL, rect.min.y), Vec2::new(RAIL, height));
+        let mut painter = ui.painter().clone();
+        painter.set_opacity(opacity);
         if reading.is_empty() {
-            lines.push("lendo a cota…".into());
+            painter.rect_filled(rail, 14.0, Color32::from_black_alpha(56));
+        } else {
+            self.draw_rail(&painter, rail, &reading, now, lit);
         }
-        drop(reading);
-        if hovering_rail {
-            let card = egui::Rect::from_min_size(
-                Pos2::new(rail.min.x - 276.0, rail.min.y),
-                Vec2::new(268.0, 24.0 + lines.len() as f32 * 44.0),
-            );
-            painter.rect_filled(card, 12.0, Color32::from_black_alpha(210));
-            for (i, line) in lines.iter().enumerate() {
-                painter.text(
-                    card.min + Vec2::new(14.0, 14.0 + i as f32 * 44.0),
-                    egui::Align2::LEFT_TOP,
-                    line,
-                    egui::FontId::proportional(14.0),
-                    Color32::WHITE,
-                );
-            }
+        if hovering_rail && !reading.is_empty() {
+            self.draw_card(ui.painter(), Pos2::new(rail.min.x - 8.0, rail.min.y), &reading, now);
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
     }
+}
+
+// Segoe UI, a fonte do Windows, no lugar da fonte padrão do egui.
+fn use_windows_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    let dir = std::path::Path::new("C:/Windows/Fonts");
+    for (name, file, family) in [
+        ("segoe", "segoeui.ttf", FontFamily::Proportional),
+        ("segoe-sb", "seguisb.ttf", FontFamily::Name("semibold".into())),
+    ] {
+        let list = fonts.families.entry(family).or_default();
+        if let Ok(bytes) = std::fs::read(dir.join(file)) {
+            fonts.font_data.insert(name.into(), std::sync::Arc::new(egui::FontData::from_owned(bytes)));
+            list.insert(0, name.into());
+        }
+    }
+    // A família de título cai na proporcional se a Segoe Semibold faltar.
+    let proportional = fonts.families[&FontFamily::Proportional].clone();
+    fonts.families.get_mut(&FontFamily::Name("semibold".into())).unwrap().extend(proportional);
+    ctx.set_fonts(fonts);
+}
+
+fn load_icons(ctx: &egui::Context) -> Vec<egui::TextureHandle> {
+    AGENTS
+        .iter()
+        .map(|(name, png)| {
+            let img = image::load_from_memory(png).expect("ícone embutido").to_rgba8();
+            let size = [img.width() as usize, img.height() as usize];
+            let color = egui::ColorImage::from_rgba_unmultiplied(size, &img);
+            ctx.load_texture(*name, color, egui::TextureOptions::LINEAR)
+        })
+        .collect()
 }
 
 fn main() -> eframe::Result {
@@ -238,10 +406,12 @@ fn main() -> eframe::Result {
         TITLE,
         options,
         Box::new(|cc| {
+            use_windows_fonts(&cc.egui_ctx);
             let reading: Reading = Default::default();
             keep_reading(reading.clone(), cc.egui_ctx.clone());
             Ok(Box::new(App {
                 reading,
+                icons: load_icons(&cc.egui_ctx),
                 placed: false,
                 stripped: false,
                 passthrough: false,

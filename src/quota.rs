@@ -1,6 +1,6 @@
 // Uma janela de cota, venha do Claude ou do Codex.
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Window {
     pub label: String,
     pub used: f32, // 0.0 a 1.0
@@ -18,9 +18,47 @@ impl Window {
     }
 }
 
+/// Quando a janela renova, do jeito que se lê de relance:
+/// "em 42 min", "em 2 h 10" ou, a partir de um dia, "qua 06:59" no fuso de `reset`.
+pub fn renew_text(reset: chrono::DateTime<chrono::FixedOffset>, now: chrono::DateTime<chrono::Utc>) -> String {
+    use chrono::Datelike;
+    let minutes = (reset.with_timezone(&chrono::Utc) - now).num_minutes();
+    match minutes {
+        ..60 => format!("em {minutes} min"),
+        60..1440 if minutes % 60 == 0 => format!("em {} h", minutes / 60),
+        60..1440 => format!("em {} h {}", minutes / 60, minutes % 60),
+        _ => {
+            const DAYS: [&str; 7] = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+            let day = DAYS[reset.weekday().num_days_from_sunday() as usize];
+            format!("{day} {}", reset.format("%H:%M"))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn local(s: &str) -> chrono::DateTime<chrono::FixedOffset> {
+        chrono::DateTime::parse_from_rfc3339(s).unwrap()
+    }
+
+    #[test]
+    fn under_an_hour_shows_minutes() {
+        assert_eq!(renew_text(local("2026-11-09T10:42:30-03:00"), at("2026-11-09T13:00:00Z")), "em 42 min");
+    }
+
+    #[test]
+    fn under_a_day_shows_hours_and_minutes() {
+        assert_eq!(renew_text(local("2026-11-09T12:10:00-03:00"), at("2026-11-09T13:00:00Z")), "em 2 h 10");
+        assert_eq!(renew_text(local("2026-11-09T12:00:00-03:00"), at("2026-11-09T13:00:00Z")), "em 2 h");
+    }
+
+    #[test]
+    fn a_day_or_more_shows_weekday_and_time() {
+        // 11/11/2026 é quarta-feira.
+        assert_eq!(renew_text(local("2026-11-11T06:59:00-03:00"), at("2026-11-09T13:00:00Z")), "qua 06:59");
+    }
 
     fn at(s: &str) -> chrono::DateTime<chrono::Utc> {
         s.parse().unwrap()

@@ -69,6 +69,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "eframe",
+ "image",
  "serde_json",
  "ureq",
  "windows-sys 0.61.2",

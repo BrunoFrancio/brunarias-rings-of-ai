@@ -110,3 +110,19 @@ A linha de 1 pixel só sumiu com o terceiro ajuste. Antes disso, ela parecia um 
 **Memória, medida de novo.** A primeira medida deu 21 MB contra 10 MB da versão anterior, e parecia culpa do Codex. Rodando as duas versões lado a lado por 4 minutos, gastaram o mesmo: sobem cerca de 1 MB a cada 30 s, chegam a 12 a 17 MB antes da leitura seguinte e voltam a 4,5 MB quando o app libera as páginas paradas. A diferença era ruído entre rodadas. A medida de 07/11 ("se firma em 7 a 8 MB") olhou só o primeiro minuto. O ciclo real vai de 4,5 MB a cerca de 15 MB.
 
 **Limite conhecido.** Uso do Codex fora deste Windows não aparece até o Codex rodar aqui de novo.
+
+## 09/11/2026: o visual
+
+**Como foi decidido.** Bruno pediu para desenhar antes de codar. A proposta foi feita como maquete em HTML, em três estados (repouso, mouse em cima e alerta), e aprovada depois de uma troca: ele pediu os ícones originais no lugar dos que eu tinha desenhado.
+
+**O que mudou.**
+
+- **Identificação.** O trilho tem um bloco por agente, com o ícone dele no topo, uma linha separando os dois blocos e o percentual dentro de cada anel. Embaixo de cada anel aparece "5h" ou "7d".
+- **Ícones.** São os dos apps instalados neste PC (o tile de 48 px do pacote do Claude e o do Codex), copiados para `assets/` e embutidos no executável com `include_bytes!`. Pertencem à Anthropic e à OpenAI, e o repositório é só local. Para ler o PNG entrou a crate `image`, só com o formato PNG.
+- **Discreto.** Em repouso, o trilho fica com 45% de opacidade e fundo quase transparente. Ele acende em 0,25 s (`animate_value_with_time`) quando o mouse chega a menos de 120 px, ou quando alguma janela que não venceu passa de 85%.
+- **Cartão.** Tem um título por agente, uma barra por janela com a cor do uso, o percentual à direita e, embaixo, "renova em 2 h 10" quando falta menos de um dia, ou o dia da semana e a hora quando falta mais. O erro de um agente aparece com quebra de linha dentro do bloco dele.
+- **Fonte.** Segoe UI, a do Windows, lida de `C:\Windows\Fonts`, com a Semibold nos títulos. Se faltar, o app cai na fonte do egui.
+
+**Testes.** O texto de renovação é regra nova e ganhou três testes antes do código: menos de 1 hora, menos de 1 dia (com e sem minutos) e 1 dia ou mais. Os três falharam contra a função vazia (RED) e passaram depois (GREEN), e o projeto todo ficou com 16 testes. O dia da semana de 11/11/2026 foi conferido à parte, em Python.
+
+**Conferido no PC de casa.** Foram capturados três estados da borda da tela: repouso apagado, aceso com o mouse perto e cartão aberto com o mouse no trilho. A memória ficou em 6,2 MB aos 10 s, 8,1 MB aos 30 s e 12 MB aos 60 s, na mesma faixa de antes. O executável passou a ter 8,1 MB. O estado de alerta não foi visto na tela, porque nenhuma cota passava de 85%.
