@@ -1,10 +1,8 @@
-// Cota do Antigravity pelo servidor local que o próprio app abre.
-// Só existe com o Antigravity aberto. O endereço não é documentado pelo Google.
+// Reads quota from the undocumented local server started by Antigravity.
 use crate::quota::Window;
 use serde_json::Value;
 
-/// Chave de acesso do servidor, se a linha de comando for a do Antigravity.
-/// Outros editores da mesma família usam o mesmo servidor com outro `--app_data_dir`.
+/// Finds the access token only for Antigravity. Related editors use a different app_data_dir.
 pub fn csrf_token(command_line: &str) -> Option<String> {
     let args: Vec<&str> = command_line.split_whitespace().collect();
     let value = |flag: &str| {
@@ -18,7 +16,7 @@ pub fn csrf_token(command_line: &str) -> Option<String> {
     value("--csrf_token")
 }
 
-/// Janelas da resposta de RetrieveUserQuotaSummary, com a de 5 horas antes da semanal.
+/// Parses RetrieveUserQuotaSummary, ordering the five-hour window before the weekly window.
 pub fn windows_from_summary(body: &str) -> Vec<Window> {
     let Ok(v) = serde_json::from_str::<Value>(body) else {
         return Vec::new();
@@ -27,7 +25,7 @@ pub fn windows_from_summary(body: &str) -> Vec<Window> {
     for group in v["response"]["groups"].as_array().into_iter().flatten() {
         let name = match group["displayName"].as_str().unwrap_or("?") {
             "Gemini Models" => "Gemini",
-            "Claude and GPT models" => "Claude e GPT",
+            "Claude and GPT models" => "Claude and GPT",
             other => other,
         };
         let mut buckets: Vec<&Value> = group["buckets"].as_array().into_iter().flatten().collect();
@@ -35,11 +33,11 @@ pub fn windows_from_summary(body: &str) -> Vec<Window> {
         for b in buckets {
             let window = match b["window"].as_str() {
                 Some("5h") => "5 h",
-                Some("weekly") => "7 dias",
+                Some("weekly") => "7 days",
                 Some(other) => other,
                 None => continue,
             };
-            // No JSON do protobuf, fração zero não vem no campo.
+            // Protobuf JSON omits zero fractions.
             let left = b["remainingFraction"].as_f64().unwrap_or(0.0);
             windows.push(Window {
                 label: format!("Antigravity · {name} {window}"),
@@ -51,7 +49,7 @@ pub fn windows_from_summary(body: &str) -> Vec<Window> {
     windows
 }
 
-/// Lê a cota agora. Falha se o Antigravity estiver fechado.
+/// Reads quota while Antigravity is running.
 pub fn read_windows() -> Result<Vec<Window>, String> {
     for (pid, line) in language_servers() {
         let Some(token) = csrf_token(&line) else { continue };
@@ -64,11 +62,11 @@ pub fn read_windows() -> Result<Vec<Window>, String> {
             }
         }
     }
-    Err("Antigravity fechado: abra o Antigravity para ler a cota".into())
+    Err("Open Antigravity to read its quota".into())
 }
 
 fn fetch(port: u16, token: &str) -> Option<String> {
-    // O servidor usa um certificado próprio em 127.0.0.1, sem cadeia para conferir.
+    // The server uses its own certificate on 127.0.0.1.
     let tls = ureq::tls::TlsConfig::builder().disable_verification(true).build();
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .tls_config(tls)
@@ -86,7 +84,7 @@ fn fetch(port: u16, token: &str) -> Option<String> {
     response.body_mut().read_to_string().ok()
 }
 
-/// Processos `language_server*` e a linha de comando de cada um.
+/// Lists language_server processes and their command lines.
 fn language_servers() -> Vec<(u32, String)> {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::*;
@@ -119,7 +117,7 @@ unsafe extern "system" {
     fn NtQueryInformationProcess(process: isize, class: u32, info: *mut u8, len: u32, ret: *mut u32) -> i32;
 }
 
-// ProcessCommandLineInformation (60) devolve a linha de comando sem ler a memória do outro processo.
+// ProcessCommandLineInformation (60) returns the command line without reading process memory.
 fn command_line(pid: u32) -> Option<String> {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
@@ -136,14 +134,14 @@ fn command_line(pid: u32) -> Option<String> {
         if status != 0 {
             return None;
         }
-        // UNICODE_STRING: tamanho em bytes, capacidade e ponteiro para o texto, dentro do próprio buffer.
+        // UNICODE_STRING holds byte length, capacity, and a pointer into the buffer.
         let bytes = *(buf.as_ptr() as *const u16) as usize;
         let text = *(buf.as_ptr() as *const u8).add(8).cast::<*const u16>();
         Some(String::from_utf16_lossy(std::slice::from_raw_parts(text, bytes / 2)))
     }
 }
 
-/// Portas TCP em escuta do processo, em 127.0.0.1 ou em todos os endereços.
+/// Returns the process's listening TCP ports on 127.0.0.1 or all addresses.
 fn listening_ports(pid: u32) -> Vec<u16> {
     use windows_sys::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER};
     const AF_INET: u32 = 2;
@@ -201,9 +199,9 @@ mod tests {
             labels,
             [
                 "Antigravity · Gemini 5 h",
-                "Antigravity · Gemini 7 dias",
-                "Antigravity · Claude e GPT 5 h",
-                "Antigravity · Gemini 4 Argon 7 dias",
+                "Antigravity · Gemini 7 days",
+                "Antigravity · Claude and GPT 5 h",
+                "Antigravity · Gemini 4 Argon 7 days",
             ]
         );
         assert_eq!(w[0].used, 0.0);
@@ -214,9 +212,9 @@ mod tests {
 
     #[test]
     fn missing_fraction_means_nothing_left() {
-        // No JSON do protobuf, o zero some do campo.
+        // Protobuf JSON omits zero values.
         let w = windows_from_summary(BODY);
-        assert_eq!(w[2].label, "Antigravity · Claude e GPT 5 h");
+        assert_eq!(w[2].label, "Antigravity · Claude and GPT 5 h");
         assert_eq!(w[2].used, 1.0);
     }
 

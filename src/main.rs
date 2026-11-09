@@ -1,5 +1,4 @@
-// Janela transparente presa na borda direita, sempre por cima,
-// que deixa o clique passar fora dos anéis e mostra um cartão no hover.
+// Transparent always-on-top overlay with click-through outside the rail and a hover card.
 mod antigravity;
 mod claude;
 mod codex;
@@ -10,23 +9,23 @@ use eframe::egui::{self, Color32, FontFamily, FontId, Pos2, Rect, Stroke, Vec2};
 use std::f32::consts::TAU;
 
 const TITLE: &str = "brunarias-rings-of-ai";
-const WIDTH: f32 = 340.0; // cartão de 290 + folga de 8 + trilho de 38 + margem
-const HEIGHT: f32 = 640.0; // cabe o cartão aberto: 3 janelas do Claude, 2 do Codex e 5 do Antigravity
+const WIDTH: f32 = 340.0; // 290 px card + 8 px gap + 38 px rail + margin
+const HEIGHT: f32 = 640.0; // fits 3 Claude, 2 Codex, and 5 Antigravity windows
 const RAIL: f32 = 38.0;
 const MARGIN: f32 = 4.0; // entre o trilho e a borda da tela
 const CARD: f32 = 290.0;
 const ICON: f32 = 18.0;
 const HEADER: f32 = ICON + 4.0;
-const CAP_TOP: f32 = 7.0; // folga dentro da cápsula, acima do ícone
+const CAP_TOP: f32 = 7.0; // padding above the icon
 const CAP_BOTTOM: f32 = 3.0;
-const GAP: f32 = 6.0; // entre as cápsulas
-const SLOT: f32 = 48.0; // anel de 28 + rótulo com folga em cima e embaixo
-const SLOT_RESTING: f32 = 32.0; // sem rótulo
+const GAP: f32 = 6.0; // between capsules
+const SLOT: f32 = 48.0; // 28 px ring plus label and padding
+const SLOT_RESTING: f32 = 32.0; // without a label
 const RESTING: f32 = 0.45; // opacidade com o mouse longe
 const ALERT: f32 = 0.85;
 const OPENING: f32 = 0.3; // segundos para abrir ou fechar o trilho
 
-// Agentes na ordem do trilho. O ícone é o do app instalado de cada um.
+// Agents in rail order, with their installed app icons.
 const AGENTS: [(&str, &[u8]); 3] = [
     ("Claude", include_bytes!("../assets/claude.png")),
     ("Codex", include_bytes!("../assets/codex.png")),
@@ -37,8 +36,7 @@ const ANTIGRAVITY: usize = 2;
 
 type Source = Result<Vec<quota::Window>, String>;
 
-// Última leitura de cada agente, na ordem de AGENTS.
-// Uma fonte com erro não esconde a outra.
+// Last reading in agent order. A failed source does not hide the others.
 type Reading = std::sync::Arc<std::sync::Mutex<Vec<Source>>>;
 
 fn read_all() -> Vec<Source> {
@@ -48,8 +46,7 @@ fn read_all() -> Vec<Source> {
 fn keep_reading(reading: Reading, ctx: egui::Context) {
     std::thread::spawn(move || loop {
         let mut fresh = read_all();
-        // O Antigravity só responde aberto. Fechado, vale a última leitura,
-        // e a regra da leitura vencida cuida dela quando a janela renovar.
+        // Keep the last Antigravity reading when it closes and mark it stale after reset.
         if fresh[ANTIGRAVITY].is_err() {
             if let Some(Ok(last)) = reading.lock().unwrap().get(ANTIGRAVITY) {
                 fresh[ANTIGRAVITY] = Ok(last.clone());
@@ -82,18 +79,17 @@ fn usage_color(used: f32) -> Color32 {
 
 const GRAY: Color32 = Color32::from_rgb(154, 154, 154);
 
-// Texto no meio do anel. A Segoe UI guarda espaço para acento em cima da linha,
-// então o centro da linha fica abaixo do centro dos algarismos. Medido na tela: ~0,17 do tamanho.
+// Segoe UI reserves accent space above digits. Shift the text by about 0.17 of its size.
 fn centered(painter: &egui::Painter, center: Pos2, text: &str, size: f32, color: Color32) {
     painter.text(center - Vec2::new(0.0, size * 0.17), egui::Align2::CENTER_CENTER, text, FontId::proportional(size), color);
 }
 
 fn ring(painter: &egui::Painter, center: Pos2, w: &quota::Window, stale: bool) {
     let (radius, width) = (12.0, 3.5);
-    // O fundo do anel leva um tom fraco da cor do uso.
+    // Tint the ring background with the usage color.
     let track = if stale { Color32::from_white_alpha(36) } else { usage_color(w.used).gamma_multiply(0.22) };
     painter.circle_stroke(center, radius, Stroke::new(width, track));
-    // Janela que já renovou: o uso de agora é desconhecido, então nada de arco.
+    // A reset makes usage unknown, so omit the arc.
     if stale {
         centered(painter, center, "?", 11.0, GRAY);
         return;
@@ -103,7 +99,7 @@ fn ring(painter: &egui::Painter, center: Pos2, w: &quota::Window, stale: bool) {
         let color = usage_color(w.used);
         let n = ((64.0 * used).ceil() as usize).max(1);
         let points: Vec<Pos2> = (0..=n).map(|i| center + Vec2::angled(-TAU / 4.0 + TAU * used * i as f32 / n as f32) * radius).collect();
-        // Pontas arredondadas, que o traço do egui não faz.
+        // Draw rounded ends separately from the egui stroke.
         painter.circle_filled(points[0], width / 2.0, color);
         painter.circle_filled(points[n], width / 2.0, color);
         painter.add(egui::Shape::line(points, Stroke::new(width, color)));
@@ -112,48 +108,44 @@ fn ring(painter: &egui::Painter, center: Pos2, w: &quota::Window, stale: bool) {
     centered(painter, center, &pct, 9.5, TEXT);
 }
 
-// "Claude · 7 dias Opus" → "7 dias Opus".
+// "Claude · 7 days Opus" → "7 days Opus".
 fn window_name(w: &quota::Window) -> &str {
     w.label.split_once(" · ").map_or(&w.label, |(_, name)| name)
 }
 
-// Alguma cota alta deixa o trilho aberto. Conta só o que aparece no trilho,
-// senão ele abre por um anel que não mostra.
+// Keep the rail expanded when one of its visible windows reaches the alert threshold.
 fn alert(reading: &[Source], now: chrono::DateTime<chrono::Utc>) -> bool {
     reading.iter().flatten().any(|ws| on_rail(ws).iter().any(|w| !w.stale(now) && w.used >= ALERT))
 }
 
-// Rótulo curto embaixo do anel: "5h", "7d", "60m". Com grupo ou modelo vem a inicial:
-// "G5h" (Gemini), "C7d" (Claude e GPT), "A7d" (Argon), "O7d" (Opus).
+// Short labels include the group or model initial when applicable, as in G5h or O7d.
 fn short_name(w: &quota::Window) -> String {
     let name = window_name(w);
-    let (group, window) = match name.find("5 h").or_else(|| name.find("7 dias")) {
+    let (group, window) = match name.find("5 h").or_else(|| name.find("7 days")) {
         Some(at) => (name[..at].trim(), &name[at..]),
         None => ("", name),
     };
-    // No Claude, o modelo vem depois da janela: "7 dias Opus".
-    let (group, window) = match window.strip_prefix("7 dias") {
+    // Claude puts the model after the window duration.
+    let (group, window) = match window.strip_prefix("7 days") {
         Some(model) if group.is_empty() => (model.trim(), "7d".to_string()),
         Some(_) => (group, "7d".to_string()),
         None => (group, window.replace(" min", "m").replace(' ', "")),
     };
     let initial = match group {
         "" => String::new(),
-        "Claude e GPT" => "C".into(),
+        "Claude and GPT" => "C".into(),
         g => g.split_whitespace().last().and_then(|word| word.chars().next()).map(String::from).unwrap_or_default(),
     };
     initial + &window
 }
 
-// Janelas que vão para o trilho. O cartão mostra todas.
-// Do Antigravity, só o grupo Gemini, a pedido do Bruno.
+// The rail includes only Gemini from Antigravity. The card shows all windows.
 fn on_rail(windows: &[quota::Window]) -> Vec<quota::Window> {
-    let gemini = ["Antigravity · Gemini 5 h", "Antigravity · Gemini 7 dias"];
+    let gemini = ["Antigravity · Gemini 5 h", "Antigravity · Gemini 7 days"];
     windows.iter().filter(|w| !w.label.starts_with("Antigravity") || gemini.contains(&w.label.as_str())).cloned().collect()
 }
 
-// Em repouso, só a janela de 5 horas de cada agente.
-// Se um agente não tiver janela de 5 horas, fica a primeira que houver.
+// Show the five-hour window at rest, falling back to the first available window.
 fn shows_resting(windows: &[quota::Window]) -> Vec<bool> {
     let five = |w: &quota::Window| window_name(w).ends_with("5 h");
     let any_five = windows.iter().any(five);
@@ -164,12 +156,11 @@ fn renew_line(w: &quota::Window, now: chrono::DateTime<chrono::Utc>) -> String {
     w.resets_at
         .as_deref()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|t| format!("renova {}", quota::renew_text(t.with_timezone(&chrono::Local).fixed_offset(), now)))
+        .map(|t| format!("resets {}", quota::renew_text(t.with_timezone(&chrono::Local).fixed_offset(), now)))
         .unwrap_or_default()
 }
 
-// Altura de um anel no trilho, de fechado (0) a aberto (1). O anel que só
-// aparece aberto nasce com altura zero e empurra os de baixo aos poucos.
+// An extra ring starts at zero height and pushes the following rings down as it expands.
 fn slot(resting: bool, open: f32) -> f32 {
     if resting { egui::lerp(SLOT_RESTING..=SLOT, open) } else { SLOT * open }
 }
@@ -178,7 +169,7 @@ fn group_height(source: &Source, open: f32) -> f32 {
     HEADER + source.as_ref().map_or(slot(true, open), |ws| shows_resting(&on_rail(ws)).into_iter().map(|r| slot(r, open)).sum())
 }
 
-// Cada agente fica numa cápsula própria.
+// Each agent has its own capsule.
 fn capsule_height(source: &Source, open: f32) -> f32 {
     CAP_TOP + group_height(source, open) + CAP_BOTTOM
 }
@@ -206,7 +197,7 @@ impl App {
         let fill = Color32::from_rgba_unmultiplied(24, 24, 27, egui::lerp(80.0..=240.0, open) as u8);
         let border = Stroke::new(1.0, Color32::from_white_alpha(egui::lerp(10.0..=22.0, open) as u8));
         let x = rail.center().x;
-        // O que só existe aberto aparece na segunda metade do movimento, quando já há espaço.
+        // Draw extra rings in the second half of the animation, once there is room.
         let late = ((open - 0.5) / 0.5).clamp(0.0, 1.0);
         let painter = painter.with_clip_rect(rail);
         let mut top = rail.min.y;
@@ -236,7 +227,7 @@ impl App {
     }
 
     fn draw_card(&self, painter: &egui::Painter, top_right: Pos2, reading: &[Source], now: chrono::DateTime<chrono::Utc>) {
-        const ROW: f32 = 48.0; // nome e número, barra, quando renova e folga até a próxima
+        const ROW: f32 = 48.0; // label, usage, reset time, and gap
         const HEAD: f32 = 28.0;
         const GROUP_GAP: f32 = 10.0;
         const PAD_X: f32 = 16.0;
@@ -264,11 +255,11 @@ impl App {
             let mid = y + ICON / 2.0;
             self.icon(painter, Pos2::new(left + ICON / 2.0, mid), i, ICON);
             painter.text(Pos2::new(left + ICON + 8.0, mid), egui::Align2::LEFT_CENTER, AGENTS[i].0, semibold(13.0), TEXT);
-            // Ao lado do nome, o maior uso do agente entre as janelas que ainda valem.
+            // Show the highest usage among the agent's fresh windows.
             let top = source.as_ref().ok().and_then(|ws| ws.iter().filter(|w| !w.stale(now)).map(|w| w.used).reduce(f32::max));
             if let Some(top) = top {
                 let color = usage_color(top);
-                let text = painter.layout_no_wrap(format!("até {:.0}%", top * 100.0), FontId::proportional(11.0), color);
+                let text = painter.layout_no_wrap(format!("up to {:.0}%", top * 100.0), FontId::proportional(11.0), color);
                 let pill = Rect::from_min_max(Pos2::new(right - text.size().x - 16.0, mid - 8.5), Pos2::new(right, mid + 8.5));
                 painter.rect_filled(pill, 8.5, color.gamma_multiply(0.16));
                 painter.galley(pill.center() - text.size() / 2.0, text, color);
@@ -289,9 +280,9 @@ impl App {
                             painter.rect_filled(fill, 2.0, usage_color(w.used));
                         }
                         let sub = match (stale, w.resets_at.is_some()) {
-                            (true, _) => format!("já renovou · abra o {} para atualizar", AGENTS[i].0),
+                            (true, _) => format!("Reset · open {} to refresh", AGENTS[i].0),
                             (false, true) => renew_line(w, now),
-                            (false, false) => "sem uso desde que renovou".into(),
+                            (false, false) => "No usage since reset".into(),
                         };
                         painter.text(Pos2::new(left, y + 24.0), egui::Align2::LEFT_TOP, sub, FontId::proportional(11.0), SOFT);
                         y += ROW;
@@ -334,12 +325,10 @@ impl eframe::App for App {
             *windows = codex::after_reset(windows, now);
         }
         let alert = alert(&reading, now);
-        // A altura do teste de proximidade é a do trilho aberto, para ele não fechar
-        // enquanto o mouse desce pelos anéis que acabaram de aparecer.
+        // Use the expanded height for proximity so the rail stays open over newly revealed rings.
         let full_height = rail_height(&reading, 1.0);
 
-        // Com o clique passando, a janela não recebe hover. O cursor e a posição da
-        // janela vêm do Windows: a do egui fica velha logo depois de abrir.
+        // Click-through prevents hover events. Read the cursor and window position from Windows.
         let (hovering_rail, near) = match (win32::cursor(), win32::window_rect()) {
             (Some((x, y)), Some((right, top))) => {
                 let (x, y, right, top) = (x as f32 / ppp, y as f32 / ppp, right as f32 / ppp, top as f32 / ppp);
@@ -354,11 +343,8 @@ impl eframe::App for App {
             self.passthrough = !hovering_rail;
         }
 
-        // Discreto em repouso, só com a janela de 5 horas; acende e abre tudo
-        // com o mouse perto ou com alguma cota alta.
-        // Altura, opacidade e anéis extras seguem o mesmo movimento, que acelera
-        // e freia suave.
-        let open = ctx.animate_bool_with_time_and_easing(egui::Id::unique("aberto"), near || alert, OPENING, egui::emath::easing::cubic_in_out);
+        // Animate height, opacity, and extra rings together when proximity or usage expands the rail.
+        let open = ctx.animate_bool_with_time_and_easing(egui::Id::unique("open"), near || alert, OPENING, egui::emath::easing::cubic_in_out);
         let height = rail_height(&reading, open);
         let opacity = egui::lerp(RESTING..=1.0, open);
 
@@ -378,7 +364,7 @@ impl eframe::App for App {
     }
 }
 
-// Segoe UI, a fonte do Windows, no lugar da fonte padrão do egui.
+// Use the Windows Segoe UI font in place of egui's default.
 fn use_windows_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let dir = std::path::Path::new("C:/Windows/Fonts");
@@ -392,7 +378,7 @@ fn use_windows_fonts(ctx: &egui::Context) {
             list.insert(0, name.into());
         }
     }
-    // A família de título cai na proporcional se a Segoe Semibold faltar.
+    // Fall back to the proportional font when Segoe UI Semibold is unavailable.
     let proportional = fonts.families[&FontFamily::Proportional].clone();
     fonts.families.get_mut(&FontFamily::Name("semibold".into())).unwrap().extend(proportional);
     ctx.set_fonts(fonts);
@@ -402,7 +388,7 @@ fn load_icons(ctx: &egui::Context) -> Vec<egui::TextureHandle> {
     AGENTS
         .iter()
         .map(|(name, png)| {
-            let img = image::load_from_memory(png).expect("ícone embutido").to_rgba8();
+            let img = image::load_from_memory(png).expect("embedded icon").to_rgba8();
             let size = [img.width() as usize, img.height() as usize];
             let color = egui::ColorImage::from_rgba_unmultiplied(size, &img);
             ctx.load_texture(*name, color, egui::TextureOptions::LINEAR)
@@ -411,16 +397,16 @@ fn load_icons(ctx: &egui::Context) -> Vec<egui::TextureHandle> {
 }
 
 fn main() -> eframe::Result {
-    // `brunarias-rings-of-ai --ler`: lê as cotas uma vez e mostra no terminal, sem abrir a janela.
-    if std::env::args().any(|a| a == "--ler") {
+    // --read prints one quota reading without opening the overlay.
+    if std::env::args().any(|a| matches!(a.as_str(), "--read" | "--ler")) {
         let now = chrono::Utc::now();
         for source in read_all() {
             match source {
                 Ok(windows) => {
                     for w in windows {
-                        let stale = if w.stale(now) { " (já renovou, valor antigo)" } else { "" };
+                        let stale = if w.stale(now) { " (reset, stale reading)" } else { "" };
                         let reset = w.resets_at.as_deref().unwrap_or("?");
-                        println!("{}: {:.0}% usado, renova {reset}{stale}", w.label, w.used * 100.0);
+                        println!("{}: {:.0}% used, resets {reset}{stale}", w.label, w.used * 100.0);
                     }
                 }
                 Err(e) => eprintln!("{e}"),
@@ -471,27 +457,27 @@ mod tests {
     fn antigravity_rail_keeps_only_gemini() {
         let windows = [
             window("Antigravity · Gemini 5 h"),
-            window("Antigravity · Gemini 7 dias"),
-            window("Antigravity · Claude e GPT 5 h"),
-            window("Antigravity · Gemini 4 Argon 7 dias"),
-            window("Claude · 7 dias Opus"),
+            window("Antigravity · Gemini 7 days"),
+            window("Antigravity · Claude and GPT 5 h"),
+            window("Antigravity · Gemini 4 Argon 7 days"),
+            window("Claude · 7 days Opus"),
         ];
         let labels: Vec<String> = on_rail(&windows).into_iter().map(|w| w.label).collect();
-        assert_eq!(labels, ["Antigravity · Gemini 5 h", "Antigravity · Gemini 7 dias", "Claude · 7 dias Opus"]);
+        assert_eq!(labels, ["Antigravity · Gemini 5 h", "Antigravity · Gemini 7 days", "Claude · 7 days Opus"]);
     }
 
     #[test]
     fn opus_week_has_its_own_label() {
-        assert_eq!(short_name(&window("Claude · 7 dias")), "7d");
-        assert_eq!(short_name(&window("Claude · 7 dias Opus")), "O7d");
-        assert_eq!(short_name(&window("Antigravity · Gemini 7 dias")), "G7d");
+        assert_eq!(short_name(&window("Claude · 7 days")), "7d");
+        assert_eq!(short_name(&window("Claude · 7 days Opus")), "O7d");
+        assert_eq!(short_name(&window("Antigravity · Gemini 7 days")), "G7d");
     }
 
     #[test]
     fn only_windows_on_the_rail_raise_the_alert() {
         let now = chrono::Utc::now();
         let high = |label: &str| quota::Window { label: label.into(), used: 0.9, resets_at: None };
-        let argon: Vec<Source> = vec![Ok(vec![window("Antigravity · Gemini 5 h"), high("Antigravity · Gemini 4 Argon 7 dias")])];
+        let argon: Vec<Source> = vec![Ok(vec![window("Antigravity · Gemini 5 h"), high("Antigravity · Gemini 4 Argon 7 days")])];
         assert!(!alert(&argon, now));
         let gemini: Vec<Source> = vec![Ok(vec![high("Antigravity · Gemini 5 h")])];
         assert!(alert(&gemini, now));
@@ -499,7 +485,7 @@ mod tests {
 
     #[test]
     fn rail_grows_smoothly_between_resting_and_open() {
-        let reading: Vec<Source> = vec![Ok(vec![window("Claude · 5 h"), window("Claude · 7 dias")]), Err("fechado".into())];
+        let reading: Vec<Source> = vec![Ok(vec![window("Claude · 5 h"), window("Claude · 7 days")]), Err("closed".into())];
         let closed = rail_height(&reading, 0.0);
         let half = rail_height(&reading, 0.5);
         let open = rail_height(&reading, 1.0);

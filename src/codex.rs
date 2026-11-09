@@ -1,9 +1,8 @@
-// Cota do Codex pelos arquivos de sessão que o próprio Codex grava.
-// Cada uso grava um evento `token_count` com `rate_limits`. Sem rede e sem token.
+// Reads token_count events with rate_limits from local Codex sessions without network access.
 use crate::quota::Window;
 use serde_json::Value;
 
-/// `rate_limits` do último evento que o traz, entre as linhas de uma sessão.
+/// Returns rate_limits from the last session event that includes it.
 pub fn latest_rate_limits<'a>(lines: impl Iterator<Item = &'a str>) -> Option<Value> {
     lines
         .filter(|l| l.contains("rate_limits"))
@@ -13,7 +12,7 @@ pub fn latest_rate_limits<'a>(lines: impl Iterator<Item = &'a str>) -> Option<Va
         .last()
 }
 
-/// Janelas a partir de `rate_limits`.
+/// Converts rate_limits into quota windows.
 pub fn windows_from(rate_limits: &Value) -> Vec<Window> {
     ["primary", "secondary"]
         .iter()
@@ -21,7 +20,7 @@ pub fn windows_from(rate_limits: &Value) -> Vec<Window> {
             let q = &rate_limits[key];
             let label = match q["window_minutes"].as_i64() {
                 Some(300) => "Codex · 5 h".to_string(),
-                Some(10080) => "Codex · 7 dias".to_string(),
+                Some(10080) => "Codex · 7 days".to_string(),
                 Some(m) => format!("Codex · {m} min"),
                 None => return None,
             };
@@ -34,9 +33,8 @@ pub fn windows_from(rate_limits: &Value) -> Vec<Window> {
         .collect()
 }
 
-/// Janela que já renovou conta como sem uso, a pedido do Bruno: se o Codex tivesse
-/// rodado depois disso, a sessão teria gravado uma cota nova. Uso em outra máquina não
-/// aparece aqui. A próxima renovação só se sabe quando o Codex rodar de novo.
+/// Treats a reset window as unused until Codex runs locally again.
+/// Usage on other machines is absent from these logs, and the next reset is unknown.
 pub fn after_reset(windows: &[Window], now: chrono::DateTime<chrono::Utc>) -> Vec<Window> {
     windows
         .iter()
@@ -46,8 +44,7 @@ pub fn after_reset(windows: &[Window], now: chrono::DateTime<chrono::Utc>) -> Ve
 
 const TAIL: u64 = 1 << 20;
 
-/// Fim do arquivo, até `max` bytes. Sessões passam de 15 MB e a cota fica no fim.
-/// A primeira linha pode vir cortada; ela não é JSON e cai fora em `latest_rate_limits`.
+/// Reads up to max bytes from the end of a session. The parser skips a partial first line.
 fn read_tail(path: &std::path::Path, max: u64) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path).ok()?;
@@ -58,8 +55,7 @@ fn read_tail(path: &std::path::Path, max: u64) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Lê a sessão mais recente do Codex deste Windows que tenha cota gravada.
-/// O Codex do WSL parou em outubro de 2026 e fica de fora.
+/// Reads the newest Windows Codex session with quota data. WSL sessions are excluded.
 pub fn read_windows() -> Result<Vec<Window>, String> {
     let root = std::path::PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join(".codex/sessions");
     let mut files = Vec::new();
@@ -85,7 +81,7 @@ pub fn read_windows() -> Result<Vec<Window>, String> {
             }
         }
     }
-    Err("Codex: nenhuma cota gravada nas sessões recentes".into())
+    Err("Codex: no quota data in recent sessions".into())
 }
 
 #[cfg(test)]
@@ -97,7 +93,7 @@ mod tests {
 
     #[test]
     fn latest_event_wins_and_noise_is_ignored() {
-        let lines = [OLD, "não é json", r#"{"type":"response_item","payload":{"type":"message"}}"#, NEW, r#"{"payload":{"type":"token_count","rate_limits":null}}"#];
+        let lines = [OLD, "not JSON", r#"{"type":"response_item","payload":{"type":"message"}}"#, NEW, r#"{"payload":{"type":"token_count","rate_limits":null}}"#];
         let rl = latest_rate_limits(lines.into_iter()).unwrap();
         assert_eq!(rl["primary"]["used_percent"], 1.0);
     }
@@ -114,7 +110,7 @@ mod tests {
             windows_from(&rl),
             vec![
                 Window { label: "Codex · 5 h".into(), used: 0.01, resets_at: Some("2026-11-07T16:32:56+00:00".into()) },
-                Window { label: "Codex · 7 dias".into(), used: 0.09, resets_at: Some("2026-11-13T12:22:04+00:00".into()) },
+                Window { label: "Codex · 7 days".into(), used: 0.09, resets_at: Some("2026-11-13T12:22:04+00:00".into()) },
             ]
         );
     }
@@ -133,7 +129,7 @@ mod tests {
     #[test]
     fn renewed_window_counts_as_unused() {
         let now = "2026-11-09T17:00:00Z".parse().unwrap();
-        let week = Window { label: "Codex · 7 dias".into(), used: 0.09, resets_at: Some("2026-11-13T12:22:04+00:00".into()) };
+        let week = Window { label: "Codex · 7 days".into(), used: 0.09, resets_at: Some("2026-11-13T12:22:04+00:00".into()) };
         let windows = [Window { label: "Codex · 5 h".into(), used: 0.4, resets_at: Some("2026-11-09T16:00:00+00:00".into()) }, week.clone()];
         assert_eq!(after_reset(&windows, now), vec![Window { label: "Codex · 5 h".into(), used: 0.0, resets_at: None }, week]);
     }

@@ -1,7 +1,6 @@
-// O que o app pede direto ao Windows: a própria janela, o cursor e a memória.
+// Direct Windows calls for the window, cursor, and memory.
 
-// Uma cópia só. Duas cópias achariam a mesma janela pelo título e uma mexeria na da outra.
-// A trava fica com o processo até ele fechar.
+// The process holds the mutex until exit so another instance cannot modify its window.
 pub fn first_instance() -> bool {
     use windows_sys::Win32::{Foundation::{GetLastError, ERROR_ALREADY_EXISTS}, System::Threading::CreateMutexW};
     let name: Vec<u16> = format!("Local\\{}", crate::TITLE).encode_utf16().chain(Some(0)).collect();
@@ -11,9 +10,8 @@ pub fn first_instance() -> bool {
     }
 }
 
-// O driver de vídeo e a primeira conexão tocam ~50 MB que não voltam a ser usados.
-// O Windows só os devolve quando falta RAM, e até lá o Gerenciador de Tarefas os conta.
-// Medido: de 85 MB para cerca de 8 MB, que é o que o app usa de fato.
+// The driver and first connection touch about 50 MB of pages that can be reclaimed.
+// Trimming reduced the observed working set from 85 MB to about 8 MB.
 pub fn release_idle_pages() {
     use windows_sys::Win32::System::{ProcessStatus::K32EmptyWorkingSet, Threading::GetCurrentProcess};
     unsafe { K32EmptyWorkingSet(GetCurrentProcess()) };
@@ -31,15 +29,14 @@ fn own_window() -> Option<windows_sys::Win32::Foundation::HWND> {
     (!hwnd.is_null()).then_some(hwnd)
 }
 
-// Borda direita e topo da janela, em pixels da tela.
+// Right and top window edges in screen pixels.
 pub fn window_rect() -> Option<(i32, i32)> {
     let hwnd = own_window()?;
     let mut r = unsafe { std::mem::zeroed::<windows_sys::Win32::Foundation::RECT>() };
     (unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect(hwnd, &mut r) } != 0).then_some((r.right, r.top))
 }
 
-// Deixa o clique atravessar a janela, ou não. São os mesmos bits que o winit liga,
-// mas o comando dele reaplica todos os estilos e a moldura pisca por um quadro.
+// Toggle click-through directly. Winit reapplies all styles and can flash the frame.
 pub fn set_passthrough(on: bool) -> bool {
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
     let Some(hwnd) = own_window() else { return false };
@@ -52,9 +49,8 @@ pub fn set_passthrough(on: bool) -> bool {
     true
 }
 
-// O Windows 11 desenha borda, canto arredondado e sombra até em janela sem moldura.
-// Roda a cada quadro e só age quando a moldura voltou, porque o winit a devolve
-// nos primeiros quadros, depois da primeira limpeza.
+// Windows 11 adds a border, rounded corners, and a shadow even to a frameless window.
+// Check each frame because winit can restore the styles after the first cleanup.
 pub fn strip_frame() {
     use windows_sys::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmSetWindowAttribute};
     use windows_sys::Win32::UI::Controls::MARGINS;
@@ -85,8 +81,7 @@ pub fn strip_frame() {
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
         );
-        // O winit guarda 1 px no topo para a sombra, e ele aparece como linha.
-        // A região da janela começa abaixo dele.
+        // Winit reserves a top pixel for the shadow. Start the window region below it.
         let mut r = std::mem::zeroed();
         GetWindowRect(hwnd, &mut r);
         let rgn = windows_sys::Win32::Graphics::Gdi::CreateRectRgn(0, 1, r.right - r.left, r.bottom - r.top);

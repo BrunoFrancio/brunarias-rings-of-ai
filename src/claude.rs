@@ -1,9 +1,8 @@
-// Cota do Claude pelo login do Claude Code de terminal.
-// O endereço não é documentado: o mesmo que o /usage do CLI usa.
+// Reads quota using the Claude Code terminal login and the undocumented endpoint used by /usage.
 use crate::quota::Window;
 use serde_json::Value;
 
-/// Token do arquivo de login, se ainda não venceu (com 1 minuto de folga).
+/// Returns a login token with at least one minute left.
 pub fn usable_token(credentials: &str, now_ms: i64) -> Option<String> {
     let v: Value = serde_json::from_str(credentials).ok()?;
     let oauth = &v["claudeAiOauth"];
@@ -13,8 +12,7 @@ pub fn usable_token(credentials: &str, now_ms: i64) -> Option<String> {
     oauth["accessToken"].as_str().map(String::from)
 }
 
-/// Janelas de uso da resposta de /api/oauth/usage.
-/// A resposta nova traz `limits`; a antiga, `five_hour` e `seven_day`.
+/// Parses both the new limits array and the legacy five_hour and seven_day fields.
 pub fn parse_usage(body: &str) -> Vec<Window> {
     let Ok(v) = serde_json::from_str::<Value>(body) else {
         return Vec::new();
@@ -32,10 +30,10 @@ pub fn parse_usage(body: &str) -> Vec<Window> {
             .filter_map(|l| {
                 let label = match l["kind"].as_str()? {
                     "session" => "Claude · 5 h".to_string(),
-                    "weekly_all" => "Claude · 7 dias".to_string(),
+                    "weekly_all" => "Claude · 7 days".to_string(),
                     "weekly_scoped" => match l["scope"]["model"]["display_name"].as_str() {
-                        Some(model) => format!("Claude · 7 dias {model}"),
-                        None => "Claude · 7 dias".to_string(),
+                        Some(model) => format!("Claude · 7 days {model}"),
+                        None => "Claude · 7 days".to_string(),
                     },
                     _ => return None,
                 };
@@ -43,7 +41,7 @@ pub fn parse_usage(body: &str) -> Vec<Window> {
             })
             .collect();
     }
-    [("five_hour", "Claude · 5 h"), ("seven_day", "Claude · 7 dias")]
+    [("five_hour", "Claude · 5 h"), ("seven_day", "Claude · 7 days")]
         .into_iter()
         .filter_map(|(key, label)| {
             let w = &v[key];
@@ -66,14 +64,13 @@ fn current_token() -> Option<String> {
     usable_token(&text, now_ms())
 }
 
-/// O token só se renova quando o próprio CLI roda. `claude update` faz isso
-/// sem gastar cota, como no Usage Monitor for Claude.
+/// Refreshes the token through the CLI without using quota, as in Usage Monitor for Claude.
 fn renew_login() {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
     let mut cmd = std::process::Command::new(home().join(".local/bin/claude.exe"));
     cmd.arg("update").creation_flags(CREATE_NO_WINDOW);
-    // Rodando de dentro de outra sessão do Claude, essas variáveis mudam o login.
+    // A parent Claude session can change how the CLI handles login through these variables.
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("CLAUDE") {
             cmd.env_remove(key);
@@ -89,7 +86,7 @@ enum Fetch {
 }
 
 fn fetch(token: &str) -> Fetch {
-    // Sem limite, uma rede caída no meio da resposta prende a leitura das três cotas.
+    // A stalled response would otherwise block quota reads for all three agents.
     let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(15))).build().into();
     let response = agent
         .get("https://api.anthropic.com/api/oauth/usage")
@@ -107,7 +104,7 @@ fn fetch(token: &str) -> Fetch {
     }
 }
 
-/// Lê a cota agora. Renova o login uma vez se ele venceu ou foi recusado.
+/// Reads quota, refreshing the login once if it expires or is rejected.
 pub fn read_windows() -> Result<Vec<Window>, String> {
     let mut renewed = false;
     loop {
@@ -118,13 +115,13 @@ pub fn read_windows() -> Result<Vec<Window>, String> {
                 renewed = true;
                 continue;
             }
-            None => return Err("login do Claude Code vencido: rode `claude auth login`".into()),
+            None => return Err("Claude Code login expired. Run `claude auth login`".into()),
         };
         match fetch(&token) {
             Fetch::Ok(body) => {
                 let windows = parse_usage(&body);
                 return if windows.is_empty() {
-                    Err("a resposta da cota veio num formato desconhecido".into())
+                    Err("Unrecognized Claude quota response".into())
                 } else {
                     Ok(windows)
                 };
@@ -133,8 +130,8 @@ pub fn read_windows() -> Result<Vec<Window>, String> {
                 renew_login();
                 renewed = true;
             }
-            Fetch::LoginRejected => return Err("o login foi recusado mesmo depois de renovar".into()),
-            Fetch::Failed(e) => return Err(format!("falha ao consultar a cota: {e}")),
+            Fetch::LoginRejected => return Err("Claude Code login was rejected after renewal".into()),
+            Fetch::Failed(e) => return Err(format!("Could not read Claude quota: {e}")),
         }
     }
 }
@@ -177,8 +174,8 @@ mod tests {
             parse_usage(body),
             vec![
                 Window { label: "Claude · 5 h".into(), used: 0.42, resets_at: Some("2026-11-07T05:00:00Z".into()) },
-                Window { label: "Claude · 7 dias".into(), used: 0.095, resets_at: Some("2026-11-13T09:00:00Z".into()) },
-                Window { label: "Claude · 7 dias Opus".into(), used: 0.30, resets_at: None },
+                Window { label: "Claude · 7 days".into(), used: 0.095, resets_at: Some("2026-11-13T09:00:00Z".into()) },
+                Window { label: "Claude · 7 days Opus".into(), used: 0.30, resets_at: None },
             ]
         );
     }
@@ -192,7 +189,7 @@ mod tests {
             parse_usage(body),
             vec![
                 Window { label: "Claude · 5 h".into(), used: 0.88, resets_at: Some("2026-11-07T05:00:00Z".into()) },
-                Window { label: "Claude · 7 dias".into(), used: 0.12, resets_at: None },
+                Window { label: "Claude · 7 days".into(), used: 0.12, resets_at: None },
             ]
         );
     }

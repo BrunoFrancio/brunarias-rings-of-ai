@@ -1,40 +1,41 @@
 # Brunarias Rings of AI
 
-Anéis presos na borda direita da tela do Windows mostrando quanto já foi usado da cota do Claude Code, do Codex e do Antigravity. A ideia vem do [Pulse](https://github.com/qunqin24/Pulse), que só existe para macOS. Este é um app próprio, escrito em Rust, e não uma cópia do código dele. Até 09/11/2026 se chamava Anéis de cota.
+A Windows desktop overlay that shows how much of your Claude Code, Codex, and Antigravity quotas you have used. It is written in Rust and inspired by [Pulse](https://github.com/qunqin24/Pulse) for macOS. The project was originally called Anéis de cota.
 
-## O que aparece
+## Run on Windows
 
-- **Em repouso:** um trilho estreito e apagado, com uma cápsula por agente e só a janela de 5 horas de cada um.
-- **Mouse perto:** o trilho acende e abre as outras janelas, como a semanal, com um rótulo curto embaixo de cada anel.
-- **Mouse em cima:** um cartão com todas as janelas, a barra de uso e quando cada uma renova.
-- **Alguma cota em 85% ou mais:** o trilho fica aberto sozinho.
+To use a prebuilt copy, put `brunarias-rings-of-ai.exe` in a folder you want to keep and double-click it. The app opens a rail along the right edge of the screen and allows one instance at a time. To start it at sign-in, press **Win+R**, open `shell:startup`, and add a shortcut to the executable.
 
-Fora dos anéis, o clique passa para a janela de trás.
+To build it yourself, install Rust with the Windows MSVC toolchain and Visual Studio Build Tools with the **Desktop development with C++** workload. From the repository root, run:
 
-## De onde vem cada cota
+```powershell
+cargo build --release --locked
+.\target\release\brunarias-rings-of-ai.exe
+```
 
-| Agente | Fonte | Limite |
+For development, use `cargo run --locked` and `cargo test --locked`. To read the quotas once in PowerShell without opening the overlay, run:
+
+```powershell
+.\target\release\brunarias-rings-of-ai.exe --read
+```
+
+## What the overlay shows
+
+- At rest, a dim rail displays one capsule per agent and its 5-hour window.
+- Move the pointer near the rail to reveal additional windows and their short labels.
+- Hover over the rail to see all windows, usage bars, and reset times.
+- A window on the rail at 85% usage or higher keeps the rail expanded.
+
+Clicks outside the rail pass through to the window underneath.
+
+## Quota sources
+
+| Agent | Source | What to expect |
 |---|---|---|
-| Claude | login do Claude Code de terminal (`%USERPROFILE%\.claude\.credentials.json`) e o mesmo endereço que o `/usage` usa | o login só se renova rodando o CLI; o app chama `claude update` quando ele vence |
-| Codex | o fim dos arquivos de sessão em `%USERPROFILE%\.codex\sessions` | só muda quando o Codex roda neste Windows; janela que renovou sem uso aparece com 0 |
-| Antigravity | o servidor local que o próprio Antigravity abre | só responde com o Antigravity aberto; fechado, fica a última leitura até ela vencer |
+| Claude Code | Terminal login in `%USERPROFILE%\.claude\.credentials.json` and the endpoint used by `/usage` | Run `claude auth login` to sign in. The app calls `claude update` when the credentials expire. |
+| Codex | Recent session logs in `%USERPROFILE%\.codex\sessions` | Run Codex on this Windows machine to refresh the data. A window that has reset since the last recorded use shows 0%. |
+| Antigravity | The local server started by Antigravity | Keep Antigravity open to fetch fresh data. The overlay retains the last successful reading and marks expired windows as stale. |
 
-Nenhum desses endereços é documentado pelos fornecedores e eles podem mudar sem aviso. Os ícones em `assets/` são das marcas de cada agente.
+These quota sources rely on undocumented provider interfaces and may change. The icons in `assets/` belong to the respective providers.
 
-## Rodar
-
-Precisa do Rust (`rustup`, toolchain `stable-msvc`) e das Build Tools do Visual Studio com o kit de C++.
-
-```
-cargo run --release
-```
-
-Para ler as cotas uma vez no terminal, sem abrir a janela:
-
-```
-cargo run --release -- --ler
-```
-
-Abre só uma cópia por vez. Testes: `cargo test`.
-
-A história de cada decisão está em [docs/construcao.md](docs/construcao.md).
+See the [development log](docs/development.md) for design decisions and verification results.
