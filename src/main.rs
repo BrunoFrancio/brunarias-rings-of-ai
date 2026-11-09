@@ -82,6 +82,12 @@ fn usage_color(used: f32) -> Color32 {
 
 const GRAY: Color32 = Color32::from_rgb(154, 154, 154);
 
+// Texto no meio do anel. A Segoe UI guarda espaço para acento em cima da linha,
+// então o centro da linha fica abaixo do centro dos algarismos. Medido na tela: ~0,17 do tamanho.
+fn centered(painter: &egui::Painter, center: Pos2, text: &str, size: f32, color: Color32) {
+    painter.text(center - Vec2::new(0.0, size * 0.17), egui::Align2::CENTER_CENTER, text, FontId::proportional(size), color);
+}
+
 fn ring(painter: &egui::Painter, center: Pos2, w: &quota::Window, stale: bool) {
     let (radius, width) = (12.0, 3.5);
     // O fundo do anel leva um tom fraco da cor do uso.
@@ -89,7 +95,7 @@ fn ring(painter: &egui::Painter, center: Pos2, w: &quota::Window, stale: bool) {
     painter.circle_stroke(center, radius, Stroke::new(width, track));
     // Janela que já renovou: o uso de agora é desconhecido, então nada de arco.
     if stale {
-        painter.text(center, egui::Align2::CENTER_CENTER, "?", FontId::proportional(11.0), GRAY);
+        centered(painter, center, "?", 11.0, GRAY);
         return;
     }
     let used = w.used.clamp(0.0, 1.0);
@@ -103,7 +109,7 @@ fn ring(painter: &egui::Painter, center: Pos2, w: &quota::Window, stale: bool) {
         painter.add(egui::Shape::line(points, Stroke::new(width, color)));
     }
     let pct = format!("{:.0}", w.used * 100.0);
-    painter.text(center, egui::Align2::CENTER_CENTER, pct, FontId::proportional(9.5), TEXT);
+    centered(painter, center, &pct, 9.5, TEXT);
 }
 
 // "Claude · 7 dias Opus" → "7 dias Opus".
@@ -222,7 +228,7 @@ impl App {
                     }
                 }
                 Err(_) => {
-                    painter.text(Pos2::new(x, y + 14.0), egui::Align2::CENTER_CENTER, "!", FontId::proportional(13.0), GRAY);
+                    centered(&painter, Pos2::new(x, y + 14.0), "!", 13.0, GRAY);
                 }
             }
             top = capsule.max.y + GAP;

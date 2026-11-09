@@ -268,3 +268,7 @@ Bruno achou os rótulos embaixo dos anéis (5h, 7d, G5h) apertados. O rótulo de
 - O executável aberto duas vezes deixou um processo só.
 - Na tela, com o Claude em 89%, o trilho ficou aberto sozinho e o cartão apareceu certo.
 - Memória com o trilho aberto o tempo todo: sobe até 38 MB e cai para 14 MB na limpeza de 3 em 3 minutos. Nas medições anteriores, com o trilho em repouso, o pico era de 15 MB. A diferença vinda do trilho aberto não foi isolada.
+
+## 09/11/2026: números no centro do anel
+
+Bruno viu que os números dentro dos anéis não estavam centralizados. Medido numa captura ampliada 8 vezes, os algarismos ficavam de 1,5 a 2 px abaixo do centro do anel. Na horizontal estavam certos. O `CENTER_CENTER` do egui centraliza a linha inteira, e a Segoe UI reserva espaço para acento em cima da linha. Como algarismo não usa esse espaço, o centro dele cai abaixo do centro da linha. A função `centered` sobe o texto em 0,17 do tamanho da fonte, e isso vale para o número, o `?` e o `!` do trilho. Na captura nova, o meio dos algarismos coincide com o meio do anel. Os 27 testes continuam passando.
