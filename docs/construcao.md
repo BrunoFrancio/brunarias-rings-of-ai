@@ -126,3 +126,23 @@ A linha de 1 pixel só sumiu com o terceiro ajuste. Antes disso, ela parecia um 
 **Testes.** O texto de renovação é regra nova e ganhou três testes antes do código: menos de 1 hora, menos de 1 dia (com e sem minutos) e 1 dia ou mais. Os três falharam contra a função vazia (RED) e passaram depois (GREEN), e o projeto todo ficou com 16 testes. O dia da semana de 11/11/2026 foi conferido à parte, em Python.
 
 **Conferido no PC de casa.** Foram capturados três estados da borda da tela: repouso apagado, aceso com o mouse perto e cartão aberto com o mouse no trilho. A memória ficou em 6,2 MB aos 10 s, 8,1 MB aos 30 s e 12 MB aos 60 s, na mesma faixa de antes. O executável passou a ter 8,1 MB. O estado de alerta não foi visto na tela, porque nenhuma cota passava de 85%.
+
+## 09/11/2026: a moldura que piscava
+
+**O que Bruno viu.** Numa gravação da tela, num quadro, a janela apareceu com a barra de título do Windows, os botões de minimizar e fechar e uma borda branca, bem quando o mouse entrava ou saía do trilho.
+
+**A causa.** Para deixar o clique passar, o app usava o comando `MousePassthrough` do egui. No winit, esse comando liga `WS_EX_TRANSPARENT | WS_EX_LAYERED` e reaplica todos os estilos da janela, o que devolve a moldura. O app a tirava de novo no quadro seguinte, mas um quadro já aparecia.
+
+**A correção.**
+
+- O app liga e desliga os dois bits direto, com `SetWindowLongPtrW(GWL_EXSTYLE)`, sem passar pelo winit. O estado interno só muda quando a janela foi encontrada, para não ficar marcado como transparente sem estar.
+- A limpeza da moldura passou a rodar a cada quadro e só age quando a moldura volta. Sem a reaplicação a cada troca, ficou visível que o winit devolve os estilos de moldura nos primeiros quadros, depois da primeira limpeza, embora nada apareça na tela.
+
+**Como foi conferido.** O mesmo roteiro rodou nas duas versões: gravação da borda da tela a 60 quadros por segundo com o `ffmpeg` (`gdigrab`), enquanto o cursor entrava e saía do trilho 8 vezes. A medida foi o brilho médio da faixa de 32 px do topo da janela em cada quadro. A barra de título branca passa de 100, e o fundo escuro fica entre 40 e 52.
+
+| Versão | Quadros | Quadros com a barra | Brilho máximo |
+| --- | --- | --- | --- |
+| antes (`4d319a2`) | 455 | 2 | 164 |
+| depois | 454 | 0 | 50 |
+
+Depois da correção, o estilo da janela ficou `96030000` (popup, sem barra de título), e os bits estendidos foram lidos a cada troca: `C0038` fora do trilho (clique passa) e `40018` sobre ele (clique pega). Os 16 testes seguem passando. Não houve teste automático novo: o defeito é da janela do Windows, e a prova é a gravação.

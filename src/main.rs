@@ -60,7 +60,6 @@ struct App {
     reading: Reading,
     icons: Vec<egui::TextureHandle>,
     placed: bool,
-    stripped: bool,
     passthrough: bool,
 }
 
@@ -70,15 +69,37 @@ fn cursor() -> Option<(i32, i32)> {
     (unsafe { GetCursorPos(&mut p) } != 0).then_some((p.x, p.y))
 }
 
+fn own_window() -> Option<windows_sys::Win32::Foundation::HWND> {
+    let title: Vec<u16> = TITLE.encode_utf16().chain(Some(0)).collect();
+    let hwnd = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::FindWindowW(std::ptr::null(), title.as_ptr()) };
+    (!hwnd.is_null()).then_some(hwnd)
+}
+
+// Deixa o clique atravessar a janela, ou não. São os mesmos bits que o winit liga,
+// mas o comando dele reaplica todos os estilos e a moldura pisca por um quadro.
+fn set_passthrough(on: bool) -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    let Some(hwnd) = own_window() else { return false };
+    unsafe {
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+        let bits = WS_EX_TRANSPARENT | WS_EX_LAYERED;
+        let new = if on { style | bits } else { style & !bits };
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new as isize);
+    }
+    true
+}
+
 // O Windows 11 desenha borda, canto arredondado e sombra até em janela sem moldura.
-fn strip_frame() -> bool {
+// Roda a cada quadro e só age quando a moldura voltou, porque o winit a devolve
+// nos primeiros quadros, depois da primeira limpeza.
+fn strip_frame() {
     use windows_sys::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmSetWindowAttribute};
     use windows_sys::Win32::UI::Controls::MARGINS;
     use windows_sys::Win32::UI::WindowsAndMessaging::*;
-    let title: Vec<u16> = TITLE.encode_utf16().chain(Some(0)).collect();
-    let hwnd = unsafe { FindWindowW(std::ptr::null(), title.as_ptr()) };
-    if hwnd.is_null() {
-        return false;
+    let Some(hwnd) = own_window() else { return };
+    let frame = WS_CAPTION | WS_THICKFRAME | WS_SYSMENU;
+    if unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) } as u32 & frame == 0 {
+        return;
     }
     let set = |attr: u32, value: u32| unsafe {
         DwmSetWindowAttribute(hwnd, attr, &value as *const u32 as _, 4);
@@ -90,7 +111,7 @@ fn strip_frame() -> bool {
     unsafe {
         DwmExtendFrameIntoClientArea(hwnd, &margins);
         let style = GetWindowLongPtrW(hwnd, GWL_STYLE) as u32;
-        let clean = (style & !(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU)) | WS_POPUP;
+        let clean = (style & !frame) | WS_POPUP;
         SetWindowLongPtrW(hwnd, GWL_STYLE, clean as isize);
         SetWindowPos(
             hwnd,
@@ -108,7 +129,6 @@ fn strip_frame() -> bool {
         let rgn = windows_sys::Win32::Graphics::Gdi::CreateRectRgn(0, 1, r.right - r.left, r.bottom - r.top);
         windows_sys::Win32::Graphics::Gdi::SetWindowRgn(hwnd, rgn, 1);
     }
-    true
 }
 
 fn usage_color(used: f32) -> Color32 {
@@ -283,9 +303,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = &ui.ctx().clone();
         let ppp = ctx.pixels_per_point();
-        if !self.stripped {
-            self.stripped = strip_frame();
-        }
+        strip_frame();
         if !self.placed {
             if let Some(size) = ctx.input(|i| i.viewport().monitor_size) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(Pos2::new(
@@ -312,11 +330,8 @@ impl eframe::App for App {
             }
             _ => (false, false),
         };
-        if hovering_rail == self.passthrough {
+        if hovering_rail == self.passthrough && set_passthrough(!hovering_rail) {
             self.passthrough = !hovering_rail;
-            ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(self.passthrough));
-            // O winit recalcula os estilos a cada troca e devolve a moldura.
-            self.stripped = false;
         }
 
         // Discreto em repouso; acende com o mouse perto ou com alguma cota alta.
@@ -413,7 +428,6 @@ fn main() -> eframe::Result {
                 reading,
                 icons: load_icons(&cc.egui_ctx),
                 placed: false,
-                stripped: false,
                 passthrough: false,
             }))
         }),
