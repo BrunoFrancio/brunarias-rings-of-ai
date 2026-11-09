@@ -9,19 +9,14 @@ use eframe::egui::{self, Color32, FontFamily, FontId, Pos2, Rect, Stroke, Vec2};
 use std::f32::consts::TAU;
 
 const TITLE: &str = "brunarias-rings-of-ai";
-const WIDTH: f32 = 356.0; // 290 px card + 10 px gap + 52 px rail + margin
+const WIDTH: f32 = CARD + 10.0 + RAIL;
 const HEIGHT: f32 = 540.0;
-const RAIL: f32 = 52.0;
-const MARGIN: f32 = 4.0;
+const RAIL: f32 = 40.0;
 const CARD: f32 = 290.0;
-const ICON: f32 = 18.0;
-const HEADER: f32 = 6.0;
-const CAP_TOP: f32 = 7.0;
-const CAP_BOTTOM: f32 = 3.0;
+const ICON: f32 = 15.0;
 const GAP: f32 = 6.0; // between agents
-const SLOT: f32 = 64.0; // ring, percentage, and window label
-const SLOT_RESTING: f32 = 56.0; // ring and percentage
-const RESTING: f32 = 0.45;
+const SLOT: f32 = 57.0;
+const RESTING: f32 = 0.9;
 const ALERT: f32 = 0.85;
 const OPENING: f32 = 0.3;
 
@@ -80,7 +75,7 @@ fn usage_color(used: f32) -> Color32 {
 const GRAY: Color32 = Color32::from_rgb(154, 154, 154);
 
 fn ring(painter: &egui::Painter, center: Pos2, w: &quota::Window, stale: bool) {
-    let (radius, width) = (15.0, 3.5);
+    let (radius, width) = (12.5, 2.5);
     painter.circle_stroke(center, radius, Stroke::new(width, Color32::from_gray(42)));
     if stale {
         return;
@@ -102,9 +97,9 @@ fn window_name(w: &quota::Window) -> &str {
     w.label.split_once(" · ").map_or(&w.label, |(_, name)| name)
 }
 
-// Keep the rail expanded when one of its visible windows reaches the alert threshold.
+// Brighten the rail when a visible window reaches the alert threshold.
 fn alert(reading: &[Source], now: chrono::DateTime<chrono::Utc>) -> bool {
-    reading.iter().flatten().any(|ws| on_rail(ws).iter().any(|w| !w.stale(now) && w.used >= ALERT))
+    reading.iter().flatten().any(|ws| rail_window(ws, now).is_some_and(|w| !w.stale(now) && w.used >= ALERT))
 }
 
 // Short labels include the group or model initial when applicable, as in G5h or O7d.
@@ -134,11 +129,15 @@ fn on_rail(windows: &[quota::Window]) -> Vec<quota::Window> {
     windows.iter().filter(|w| !w.label.starts_with("Antigravity") || gemini.contains(&w.label.as_str())).cloned().collect()
 }
 
-// Show the five-hour window at rest, falling back to the first available window.
-fn shows_resting(windows: &[quota::Window]) -> Vec<bool> {
-    let five = |w: &quota::Window| window_name(w).ends_with("5 h");
-    let any_five = windows.iter().any(five);
-    windows.iter().enumerate().map(|(i, w)| if any_five { five(w) } else { i == 0 }).collect()
+fn rail_window(windows: &[quota::Window], now: chrono::DateTime<chrono::Utc>) -> Option<quota::Window> {
+    let windows = on_rail(windows);
+    let weekly = |w: &quota::Window| window_name(w).contains("7 days");
+    windows.iter()
+        .filter(|w| weekly(w) && w.used > 0.9 && !w.stale(now))
+        .max_by(|a, b| a.used.total_cmp(&b.used))
+        .or_else(|| windows.iter().find(|w| window_name(w).ends_with("5 h")))
+        .or_else(|| windows.iter().find(|w| !weekly(w)))
+        .cloned()
 }
 
 fn renew_line(w: &quota::Window, now: chrono::DateTime<chrono::Utc>) -> String {
@@ -149,36 +148,16 @@ fn renew_line(w: &quota::Window, now: chrono::DateTime<chrono::Utc>) -> String {
         .unwrap_or_default()
 }
 
-// An extra ring starts at zero height and pushes the following rings down as it expands.
-fn slot(resting: bool, open: f32) -> f32 {
-    if resting { egui::lerp(SLOT_RESTING..=SLOT, open) } else { SLOT * open }
-}
-
-fn group_height(source: &Source, open: f32) -> f32 {
-    HEADER + source.as_ref().map_or(slot(true, open), |ws| shows_resting(&on_rail(ws)).into_iter().map(|r| slot(r, open)).sum())
-}
-
-
-fn agent_height(source: &Source, open: f32) -> f32 {
-    CAP_TOP + group_height(source, open) + CAP_BOTTOM
-}
-
-fn hovered_agent(reading: &[Source], offset: f32, open: f32) -> Option<(usize, f32)> {
-    let mut top = 0.0;
-    for (index, source) in reading.iter().enumerate() {
-        let height = agent_height(source, open);
-        let bottom = top + height + if index + 1 < reading.len() { GAP } else { 0.0 };
-        if (top..bottom).contains(&offset) {
-            return Some((index, top + height / 2.0));
-        }
-        top = bottom;
+fn hovered_agent(count: usize, offset: f32) -> Option<(usize, f32)> {
+    if !(0.0..rail_height(count)).contains(&offset) {
+        return None;
     }
-    None
+    let agent = (offset / (SLOT + GAP)) as usize;
+    Some((agent, agent as f32 * (SLOT + GAP) + SLOT / 2.0))
 }
 
-fn rail_height(reading: &[Source], open: f32) -> f32 {
-    let agents: f32 = reading.iter().map(|s| agent_height(s, open)).sum();
-    agents + GAP * reading.len().saturating_sub(1) as f32
+fn rail_height(count: usize) -> f32 {
+    SLOT * count as f32 + GAP * count.saturating_sub(1) as f32
 }
 
 fn semibold(size: f32) -> FontId {
@@ -195,39 +174,25 @@ impl App {
         painter.image(self.icons[agent].id(), rect, uv, Color32::WHITE);
     }
 
-    fn draw_rail(&self, painter: &egui::Painter, rail: Rect, reading: &[Source], now: chrono::DateTime<chrono::Utc>, open: f32) {
-        painter.rect_filled(rail, RAIL / 2.0, Color32::from_gray(8));
+    fn draw_rail(&self, painter: &egui::Painter, rail: Rect, reading: &[Source], now: chrono::DateTime<chrono::Utc>) {
+        let corners = egui::CornerRadius { nw: 12, sw: 12, ne: 0, se: 0 };
+        painter.rect_filled(rail, corners, Color32::BLACK);
         let x = rail.center().x;
-        let late = ((open - 0.5) / 0.5).clamp(0.0, 1.0);
-        let painter = painter.with_clip_rect(rail);
-        let mut top = rail.min.y;
         for (i, source) in reading.iter().enumerate() {
-            let mut y = top + CAP_TOP + HEADER;
-            match source {
-                Ok(windows) => {
-                    let windows = on_rail(windows);
-                    for (w, resting) in windows.iter().zip(shows_resting(&windows)) {
-                        let mut faded = painter.clone();
-                        faded.set_opacity(painter.opacity() * late);
-                        let visible = if resting { &painter } else { &faded };
-                        let center = Pos2::new(x, y + 17.0);
-                        let stale = w.stale(now);
-                        ring(visible, center, w, stale);
-                        self.icon(visible, center, i, ICON);
-                        let usage = if stale { "?".to_owned() } else { format!("{:.0}%", w.used * 100.0) };
-                        visible.text(Pos2::new(x, y + 37.0), egui::Align2::CENTER_TOP, usage, semibold(12.0), TEXT);
-                        faded.text(Pos2::new(x, y + 51.0), egui::Align2::CENTER_TOP, short_name(w), FontId::proportional(9.0), GRAY);
-                        y += slot(resting, open);
-                    }
-                }
-                Err(_) => {
-                    let center = Pos2::new(x, y + 17.0);
-                    painter.circle_stroke(center, 15.0, Stroke::new(3.5, Color32::from_gray(42)));
-                    self.icon(&painter, center, i, ICON);
-                    painter.text(Pos2::new(x, y + 37.0), egui::Align2::CENTER_TOP, "!", semibold(12.0), GRAY);
-                }
-            }
-            top += agent_height(source, open) + GAP;
+            let y = rail.min.y + i as f32 * (SLOT + GAP);
+            let center = Pos2::new(x, y + 18.0);
+            let window = source.as_ref().ok().and_then(|windows| rail_window(windows, now));
+            let usage = if let Some(w) = window {
+                let stale = w.stale(now);
+                ring(painter, center, &w, stale);
+                painter.text(Pos2::new(x, y + 45.0), egui::Align2::CENTER_TOP, short_name(&w), FontId::proportional(9.0), GRAY);
+                if stale { "?".to_owned() } else { format!("{:.0}%", w.used * 100.0) }
+            } else {
+                painter.circle_stroke(center, 12.5, Stroke::new(2.5, Color32::from_gray(42)));
+                "!".to_owned()
+            };
+            self.icon(painter, center, i, ICON);
+            painter.text(Pos2::new(x, y + 32.0), egui::Align2::CENTER_TOP, usage, semibold(11.0), TEXT);
         }
     }
 
@@ -313,24 +278,27 @@ impl eframe::App for App {
             *windows = codex::after_reset(windows, now);
         }
         let alert = alert(&reading, now);
-        // Use the expanded height for proximity so the rail stays open over newly revealed rings.
-        let full_height = rail_height(&reading, 1.0);
+
+        let height = rail_height(reading.len());
+        let rect = ui.max_rect();
+        let offset = (rect.height() - height) / 2.0;
 
         // Click-through prevents hover events. Read the cursor and window position from Windows.
         let (rail_offset, near) = match (win32::cursor(), win32::window_rect()) {
             (Some((x, y)), Some((right, top))) => {
                 let (x, y, right, top) = (x as f32 / ppp, y as f32 / ppp, right as f32 / ppp, top as f32 / ppp);
-                let rail_left = right - MARGIN - RAIL;
-                let on = x >= rail_left && x <= right - MARGIN;
-                let near = x >= rail_left - 120.0 && y >= top - 60.0 && y <= top + full_height + 60.0;
+                let top = top + offset;
+                let rail_left = right - RAIL;
+                let on = x >= rail_left && x < right;
+                let near = x >= rail_left - 120.0 && y >= top - 60.0 && y <= top + height + 60.0;
                 (on.then_some(y - top), near)
             }
             _ => (None, false),
         };
-        // Animate height, opacity, and extra rings together when proximity or usage expands the rail.
+        // Brighten the rail when the pointer is nearby or a visible window is in alert.
         let open = ctx.animate_bool_with_time_and_easing(egui::Id::unique("open"), near || alert, OPENING, egui::emath::easing::cubic_in_out);
-        let height = rail_height(&reading, open);
-        let hovered = rail_offset.and_then(|offset| hovered_agent(&reading, offset, open));
+
+        let hovered = rail_offset.and_then(|offset| hovered_agent(reading.len(), offset));
         let hovering_rail = hovered.is_some();
         if hovering_rail == self.passthrough && win32::set_passthrough(!hovering_rail) {
             self.passthrough = !hovering_rail;
@@ -338,15 +306,10 @@ impl eframe::App for App {
 
         let opacity = egui::lerp(RESTING..=1.0, open);
 
-        let rect = ui.max_rect();
-        let rail = Rect::from_min_size(Pos2::new(rect.max.x - MARGIN - RAIL, rect.min.y), Vec2::new(RAIL, height));
+        let rail = Rect::from_min_size(Pos2::new(rect.max.x - RAIL, rect.min.y + offset), Vec2::new(RAIL, height));
         let mut painter = ui.painter().clone();
         painter.set_opacity(opacity);
-        if reading.is_empty() {
-            painter.rect_filled(rail, RAIL / 2.0, Color32::from_black_alpha(56));
-        } else {
-            self.draw_rail(&painter, rail, &reading, now, open);
-        }
+        self.draw_rail(&painter, rail, &reading, now);
         if let Some((agent, center)) = hovered {
             let anchor = Pos2::new(rail.min.x, rail.min.y + center);
             self.draw_card(ui.painter(), anchor, rect, agent, &reading[agent], now);
@@ -445,16 +408,25 @@ mod tests {
     }
 
     #[test]
+    fn weekly_window_replaces_hours_only_above_ninety_percent_and_before_reset() {
+        let now = "2026-11-09T17:00:00Z".parse().unwrap();
+        let hours = window("Claude · 5 h");
+        let mut weekly = quota::Window { used: 0.9, ..window("Claude · 7 days") };
+        assert_eq!(rail_window(&[weekly.clone(), hours.clone()], now), Some(hours.clone()));
+        weekly.used = 0.91;
+        assert_eq!(rail_window(&[hours.clone(), weekly.clone()], now), Some(weekly.clone()));
+        weekly.resets_at = Some("2026-11-09T16:00:00Z".into());
+        assert_eq!(rail_window(&[hours.clone(), weekly], now), Some(hours));
+    }
+
+    #[test]
     fn hover_selects_the_agent_at_the_current_rail_height() {
-        let reading = vec![Ok(vec![window("Claude · 5 h"), window("Claude · 7 days")]), Err("closed".into())];
-        for open in [0.0, 0.5, 1.0] {
-            let (first, center) = hovered_agent(&reading, 12.0, open).unwrap();
-            assert_eq!(first, 0);
-            let (second, _) = hovered_agent(&reading, 2.0 * center + GAP + 2.0, open).unwrap();
-            assert_eq!(second, 1);
-            assert_eq!(hovered_agent(&reading, rail_height(&reading, open) + 1.0, open), None);
-        }
-        assert_eq!(hovered_agent(&reading, -1.0, 1.0), None);
+        let (first, center) = hovered_agent(2, 12.0).unwrap();
+        assert_eq!(first, 0);
+        let (second, _) = hovered_agent(2, 2.0 * center + GAP + 2.0).unwrap();
+        assert_eq!(second, 1);
+        assert_eq!(hovered_agent(2, rail_height(2) + 1.0), None);
+        assert_eq!(hovered_agent(2, -1.0), None);
     }
 
     #[test]
@@ -488,14 +460,8 @@ mod tests {
     }
 
     #[test]
-    fn rail_grows_smoothly_between_resting_and_open() {
-        let reading: Vec<Source> = vec![Ok(vec![window("Claude · 5 h"), window("Claude · 7 days")]), Err("closed".into())];
-        let closed = rail_height(&reading, 0.0);
-        let half = rail_height(&reading, 0.5);
-        let open = rail_height(&reading, 1.0);
-        let capsules = 2.0 * (CAP_TOP + HEADER + CAP_BOTTOM) + GAP;
-        assert_eq!(closed, capsules + 2.0 * SLOT_RESTING);
-        assert_eq!(open, capsules + 3.0 * SLOT);
-        assert_eq!(half, (closed + open) / 2.0);
+    fn rail_height_has_one_slot_per_provider() {
+        assert_eq!(rail_height(0), 0.0);
+        assert_eq!(rail_height(2), 2.0 * SLOT + GAP);
     }
 }

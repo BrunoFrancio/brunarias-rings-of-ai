@@ -21,10 +21,10 @@ For development, use `cargo run --locked` and `cargo test --locked`. To read the
 
 ## What the overlay shows
 
-- At rest, a dim rail shows each agent's 5-hour window, with its icon inside the ring and usage underneath.
-- Move the pointer near the rail to reveal additional windows and their short labels.
+- The slim rail shows one ring per agent, with its icon inside the ring and usage underneath.
+- The rail shows the short usage window by default. A current weekly window replaces it when weekly usage exceeds 90%.
 - Hover over an agent to see its windows, usage bars, and reset times in a compact card.
-- A window on the rail at 85% usage or higher keeps the rail expanded.
+- A window on the rail at 85% usage or higher keeps the rail bright.
 
 Clicks outside the rail pass through to the window underneath.
 

@@ -173,3 +173,7 @@ Each provider displays its icon only on its primary ring. Additional windows ret
 ## 2026-11-09 — Restore icons on all rings
 
 Bruno asked to restore the v0.2.0 rail. The overlay source matches that release again. All 28 tests passed and the Windows executable launched.
+
+## 2026-11-09 — One quota window per provider
+
+The slim black rail sits flush with the right edge and shows each provider's short window. A current weekly window above 90% takes its place. The hover card continues to show all windows. The selection test failed on the previous behavior and passed after the change. All 29 tests passed, and the rail and Claude hover card were checked on Windows.
