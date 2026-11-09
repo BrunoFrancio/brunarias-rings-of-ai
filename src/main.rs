@@ -11,7 +11,7 @@ use std::f32::consts::TAU;
 const TITLE: &str = "brunarias-rings-of-ai";
 const WIDTH: f32 = CARD + 10.0 + RAIL;
 const HEIGHT: f32 = 540.0;
-const RAIL: f32 = 40.0;
+const RAIL: f32 = 48.0;
 const CARD: f32 = 290.0;
 const ICON: f32 = 15.0;
 const GAP: f32 = 6.0; // between agents
@@ -175,8 +175,27 @@ impl App {
     }
 
     fn draw_rail(&self, painter: &egui::Painter, rail: Rect, reading: &[Source], now: chrono::DateTime<chrono::Utc>) {
-        let corners = egui::CornerRadius { nw: 12, sw: 12, ne: 0, se: 0 };
-        painter.rect_filled(rail, corners, Color32::BLACK);
+        const STEPS: u32 = 32;
+        let mut background = egui::Mesh::default();
+        for (edge, direction) in [(rail.top(), -1.0), (rail.bottom(), 1.0)] {
+            for step in 0..=STEPS {
+                let t = if direction < 0.0 { STEPS - step } else { step } as f32 / STEPS as f32;
+                let rest = 1.0 - t;
+                let x = rail.left() + rail.width() * t * t * (3.0 - 2.0 * t);
+                let y = edge + direction * (87.0 * rest * rest * t + 45.0 * rest * t * t + 38.0 * t * t * t);
+                let v = background.vertices.len() as u32;
+                background.colored_vertex(Pos2::new(x - 0.5, y), Color32::TRANSPARENT);
+                background.colored_vertex(Pos2::new((x + 0.5).min(rail.right()), y), Color32::BLACK);
+                background.colored_vertex(Pos2::new(rail.right(), y), Color32::BLACK);
+                if v >= 3 {
+                    background.add_triangle(v - 3, v - 2, v);
+                    background.add_triangle(v - 2, v + 1, v);
+                    background.add_triangle(v - 2, v - 1, v + 1);
+                    background.add_triangle(v - 1, v + 2, v + 1);
+                }
+            }
+        }
+        painter.add(egui::Shape::mesh(background));
         let x = rail.center().x;
         for (i, source) in reading.iter().enumerate() {
             let y = rail.min.y + i as f32 * (SLOT + GAP);
