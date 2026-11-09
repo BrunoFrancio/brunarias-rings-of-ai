@@ -159,3 +159,9 @@ An 8× screenshot showed digits 1.5–2 px below the ring center, while horizont
 ## 2026-11-09 — English text and portable launch
 
 Bruno requested English labels and documentation. Quota names, reset text, and errors are in English. The read-only CLI is documented as `--read`, with `--ler` retained for existing commands. The README separates launching a prebuilt executable from building with Rust and describes how to add a startup shortcut. Three updated reset-text tests first failed on the Portuguese strings, then passed with the full 27-test suite.
+
+## 2026-11-09 — Unified rail and compact usage card
+
+Bruno chose the visual reference from [Pulse PR #109](https://github.com/qunqin24/Pulse/pull/109). The Windows overlay uses a single dark rail, provider icons inside the rings, and usage percentages below them. Hovering over an agent opens a compact card with that agent's windows, usage bars, and reset times. Proximity still reveals additional windows and the existing alert keeps the rail expanded.
+
+The hover-selection test failed before implementation and passed afterward with the full 28-test suite. A Windows screen capture confirmed the dark rail, live percentages, and the Claude usage card beside its rings.

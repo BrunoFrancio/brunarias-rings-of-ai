@@ -21,9 +21,9 @@ For development, use `cargo run --locked` and `cargo test --locked`. To read the
 
 ## What the overlay shows
 
-- At rest, a dim rail displays one capsule per agent and its 5-hour window.
+- At rest, a dim rail shows each agent's 5-hour window, with its icon inside the ring and usage underneath.
 - Move the pointer near the rail to reveal additional windows and their short labels.
-- Hover over the rail to see all windows, usage bars, and reset times.
+- Hover over an agent to see its windows, usage bars, and reset times in a compact card.
 - A window on the rail at 85% usage or higher keeps the rail expanded.
 
 Clicks outside the rail pass through to the window underneath.
