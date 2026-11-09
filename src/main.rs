@@ -213,9 +213,7 @@ impl App {
                         let center = Pos2::new(x, y + 17.0);
                         let stale = w.stale(now);
                         ring(visible, center, w, stale);
-                        if resting {
-                            self.icon(visible, center, i, ICON);
-                        }
+                        self.icon(visible, center, i, ICON);
                         let usage = if stale { "?".to_owned() } else { format!("{:.0}%", w.used * 100.0) };
                         visible.text(Pos2::new(x, y + 37.0), egui::Align2::CENTER_TOP, usage, semibold(12.0), TEXT);
                         faded.text(Pos2::new(x, y + 51.0), egui::Align2::CENTER_TOP, short_name(w), FontId::proportional(9.0), GRAY);

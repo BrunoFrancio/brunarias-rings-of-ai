@@ -169,3 +169,7 @@ The hover-selection test failed before implementation and passed afterward with 
 ## 2026-11-09 — One rail icon per provider
 
 Each provider displays its icon only on its primary ring. Additional windows retain their percentages and labels. All 28 tests passed, and the expanded rail was checked on Windows with all three providers.
+
+## 2026-11-09 — Restore icons on all rings
+
+Bruno asked to restore the v0.2.0 rail. The overlay source matches that release again. All 28 tests passed and the Windows executable launched.
