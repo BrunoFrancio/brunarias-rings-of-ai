@@ -1,41 +1,54 @@
 # Brunarias Rings of AI
 
-A Windows desktop overlay that shows how much of your Claude Code, Codex, and Antigravity quotas you have used. It is written in Rust and inspired by [Pulse](https://github.com/qunqin24/Pulse) for macOS. The project was originally called Anéis de cota.
+See your Claude Code, Codex, and Antigravity quotas at a glance in a slim overlay on the right edge of Windows. Each provider gets one ring. Hover over it for usage and reset times.
 
-## Run on Windows
+[Download](#download) · [Quick start](#quick-start) · [Using the app](#using-the-app) · [Supported tools](#supported-tools) · [Development](#development)
 
-Download the Windows x64 executable from [GitHub Releases](https://github.com/BrunoFrancio/brunarias-rings-of-ai/releases/latest). Put `brunarias-rings-of-ai.exe` in a folder you want to keep and double-click it. The app opens a rail along the right edge of the screen and allows one instance at a time. To start it at sign-in, press **Win+R**, open `shell:startup`, and add a shortcut to the executable.
+## Download
 
-To build it yourself, install Rust with the Windows MSVC toolchain and Visual Studio Build Tools with the **Desktop development with C++** workload. From the repository root, run:
+**[Download for Windows x64](https://github.com/BrunoFrancio/brunarias-rings-of-ai/releases/latest/download/brunarias-rings-of-ai.exe)** · [Release notes](https://github.com/BrunoFrancio/brunarias-rings-of-ai/releases/latest)
+
+The download is a portable `.exe`. Save it in a folder you want to keep and double-click to launch.
+
+## Quick start
+
+1. Open `brunarias-rings-of-ai.exe`.
+2. Use your AI tools as usual. See [supported tools](#supported-tools) for what each provider needs to report usage.
+3. Hover over a ring to see that provider's usage windows and reset times.
+
+To launch at sign-in, press **Win+R**, open `shell:startup`, and add a shortcut to the executable.
+
+## Using the app
+
+- Each ring normally shows the provider's short usage window. A current weekly window takes its place when weekly usage exceeds **90%**.
+- At **85%** or higher, a visible ring keeps the rail bright.
+- The hover card shows all available windows for the selected provider.
+- Clicks outside the rail pass through to the window underneath. The overlay allows one instance at a time.
+
+To print a one-time reading in PowerShell, run this from the executable's folder:
 
 ```powershell
-cargo build --release --locked
-.\target\release\brunarias-rings-of-ai.exe
+.\brunarias-rings-of-ai.exe --read
 ```
 
-For development, use `cargo run --locked` and `cargo test --locked`. To read the quotas once in PowerShell without opening the overlay, run:
+## Supported tools
 
-```powershell
-.\target\release\brunarias-rings-of-ai.exe --read
-```
-
-## What the overlay shows
-
-- The slim rail shows one ring per agent, with its icon inside the ring and usage underneath.
-- The rail shows the short usage window by default. A current weekly window replaces it when weekly usage exceeds 90%.
-- Hover over an agent to see its windows, usage bars, and reset times in a compact card.
-- A window on the rail at 85% usage or higher keeps the rail bright.
-
-Clicks outside the rail pass through to the window underneath.
-
-## Quota sources
-
-| Agent | Source | What to expect |
+| Provider | What to do | Where usage comes from |
 |---|---|---|
-| Claude Code | Terminal login in `%USERPROFILE%\.claude\.credentials.json` and the endpoint used by `/usage` | Run `claude auth login` to sign in. The app calls `claude update` when the credentials expire. |
-| Codex | Recent session logs in `%USERPROFILE%\.codex\sessions` | Run Codex on this Windows machine to refresh the data. A window that has reset since the last recorded use shows 0%. |
-| Antigravity | The local server started by Antigravity | Keep Antigravity open to fetch fresh data. The overlay retains the last successful reading and marks expired windows as stale. |
+| Claude Code | Sign in with `claude auth login`. | The app uses the CLI login and the endpoint behind `/usage`. It calls `claude update` to refresh expired credentials. |
+| Codex | Run Codex on this Windows machine to update its session logs. | The app reads recent local sessions. A window that reset after the last recorded use shows 0%. |
+| Antigravity | Keep Antigravity open to fetch fresh readings. | The app reads Antigravity's local server and retains the last successful reading when it closes. |
 
-These quota sources rely on undocumented provider interfaces and may change. The icons in `assets/` belong to the respective providers.
+Quota collection relies on undocumented provider interfaces that may change. The icons in `assets/` belong to the respective providers.
 
-See the [development log](docs/development.md) for design decisions and verification results.
+## Development
+
+Install Rust with the Windows MSVC toolchain and Visual Studio Build Tools with the **Desktop development with C++** workload. From the repository root:
+
+```powershell
+cargo test --locked
+cargo run --locked
+cargo build --release --locked
+```
+
+The optimized executable is at `target\release\brunarias-rings-of-ai.exe`. The overlay is built with Rust and egui and was inspired by [Pulse](https://github.com/qunqin24/Pulse) for macOS. See the [development log](docs/development.md) for design decisions and verification.
