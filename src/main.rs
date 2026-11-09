@@ -1,21 +1,29 @@
 // Janela transparente presa na borda direita, sempre por cima,
 // que deixa o clique passar fora dos anéis e mostra um cartão no hover.
 mod claude;
+mod codex;
+mod quota;
 
 use eframe::egui::{self, Color32, Pos2, Stroke, Vec2};
 use std::f32::consts::TAU;
 
 const TITLE: &str = "aneis-de-cota";
-const WIDTH: f32 = 320.0;
-const HEIGHT: f32 = 200.0;
+const WIDTH: f32 = 340.0; // cartão de 268 + folga de 8 + trilho de 56
+const HEIGHT: f32 = 320.0;
 const RAIL: f32 = 56.0;
+const STEP: f32 = 58.0; // distância entre os anéis
 
-// Última leitura da cota: janelas ou o motivo de não ter lido.
-type Reading = std::sync::Arc<std::sync::Mutex<Result<Vec<claude::Window>, String>>>;
+// Última leitura de cada fonte: janelas ou o motivo de não ter lido.
+// Uma fonte com erro não esconde a outra.
+type Reading = std::sync::Arc<std::sync::Mutex<Vec<Result<Vec<quota::Window>, String>>>>;
+
+fn read_all() -> Vec<Result<Vec<quota::Window>, String>> {
+    vec![claude::read_windows(), codex::read_windows()]
+}
 
 fn keep_reading(reading: Reading, ctx: egui::Context) {
     std::thread::spawn(move || loop {
-        let fresh = claude::read_windows();
+        let fresh = read_all();
         *reading.lock().unwrap() = fresh;
         ctx.request_repaint();
         std::thread::sleep(std::time::Duration::from_secs(2));
@@ -86,8 +94,13 @@ fn strip_frame() -> bool {
     true
 }
 
-fn ring(painter: &egui::Painter, center: Pos2, radius: f32, used: f32) {
+fn ring(painter: &egui::Painter, center: Pos2, radius: f32, used: f32, stale: bool) {
     painter.circle_stroke(center, radius, Stroke::new(5.0, Color32::from_white_alpha(40)));
+    // Janela que já renovou: o uso de agora é desconhecido, então nada de arco.
+    if stale {
+        painter.text(center, egui::Align2::CENTER_CENTER, "?", egui::FontId::proportional(16.0), Color32::GRAY);
+        return;
+    }
     let color = if used < 0.6 {
         Color32::from_rgb(80, 200, 120)
     } else if used < 0.85 {
@@ -102,7 +115,11 @@ fn ring(painter: &egui::Painter, center: Pos2, radius: f32, used: f32) {
     painter.add(egui::Shape::line(points, Stroke::new(5.0, color)));
 }
 
-fn card_line(w: &claude::Window) -> String {
+fn card_line(w: &quota::Window, now: chrono::DateTime<chrono::Utc>) -> String {
+    if w.stale(now) {
+        let agent = w.label.split(" · ").next().unwrap_or("agente");
+        return format!("{}: já renovou\nabra o {agent} para atualizar", w.label);
+    }
     let reset = w
         .resets_at
         .as_deref()
@@ -133,12 +150,17 @@ impl eframe::App for App {
             }
         }
 
+        let now = chrono::Utc::now();
+        let reading = self.reading.lock().unwrap();
+        let windows: Vec<&quota::Window> = reading.iter().flatten().flatten().collect();
+        let rail_height = 10.0 + windows.len().max(1) as f32 * STEP;
+
         // Com o clique passando, a janela não recebe hover. O cursor vem do Windows.
         let outer = ctx.input(|i| i.viewport().outer_rect);
         let hovering_rail = match (cursor(), outer) {
             (Some((x, y)), Some(r)) => {
                 let (x, y) = (x as f32 / ppp, y as f32 / ppp);
-                x >= r.max.x - RAIL && x <= r.max.x && y >= r.min.y && y <= r.max.y
+                x >= r.max.x - RAIL && x <= r.max.x && y >= r.min.y && y <= r.min.y + rail_height
             }
             _ => false,
         };
@@ -151,18 +173,18 @@ impl eframe::App for App {
 
         let rect = ui.max_rect();
         let painter = ui.painter();
-        let rail = egui::Rect::from_min_max(Pos2::new(rect.max.x - RAIL, rect.min.y), rect.max);
+        let rail = egui::Rect::from_min_size(Pos2::new(rect.max.x - RAIL, rect.min.y), Vec2::new(RAIL, rail_height));
         painter.rect_filled(rail, 14.0, Color32::from_black_alpha(170));
-        let lines: Vec<String> = match &*self.reading.lock().unwrap() {
-            Ok(windows) => {
-                for (i, w) in windows.iter().enumerate() {
-                    let c = Pos2::new(rail.center().x, rail.min.y + 34.0 + i as f32 * 58.0);
-                    ring(painter, c, 18.0, w.used);
-                }
-                windows.iter().map(card_line).collect()
-            }
-            Err(e) => vec![e.clone()],
-        };
+        for (i, w) in windows.iter().enumerate() {
+            let c = Pos2::new(rail.center().x, rail.min.y + 34.0 + i as f32 * STEP);
+            ring(painter, c, 18.0, w.used, w.stale(now));
+        }
+        let mut lines: Vec<String> = windows.iter().map(|w| card_line(w, now)).collect();
+        lines.extend(reading.iter().filter_map(|r| r.as_ref().err().cloned()));
+        if reading.is_empty() {
+            lines.push("lendo a cota…".into());
+        }
+        drop(reading);
         if hovering_rail {
             let card = egui::Rect::from_min_size(
                 Pos2::new(rail.min.x - 276.0, rail.min.y),
@@ -184,15 +206,20 @@ impl eframe::App for App {
 }
 
 fn main() -> eframe::Result {
-    // `aneis-de-cota --claude`: lê a cota uma vez e mostra no terminal, sem abrir a janela.
-    if std::env::args().any(|a| a == "--claude") {
-        match claude::read_windows() {
-            Ok(windows) => {
-                for w in windows {
-                    println!("{}: {:.0}% usado, renova {}", w.label, w.used * 100.0, w.resets_at.as_deref().unwrap_or("?"));
+    // `aneis-de-cota --ler`: lê as cotas uma vez e mostra no terminal, sem abrir a janela.
+    if std::env::args().any(|a| a == "--ler") {
+        let now = chrono::Utc::now();
+        for source in read_all() {
+            match source {
+                Ok(windows) => {
+                    for w in windows {
+                        let stale = if w.stale(now) { " (já renovou, valor antigo)" } else { "" };
+                        let reset = w.resets_at.as_deref().unwrap_or("?");
+                        println!("{}: {:.0}% usado, renova {reset}{stale}", w.label, w.used * 100.0);
+                    }
                 }
+                Err(e) => eprintln!("{e}"),
             }
-            Err(e) => eprintln!("{e}"),
         }
         return Ok(());
     }
@@ -211,7 +238,7 @@ fn main() -> eframe::Result {
         TITLE,
         options,
         Box::new(|cc| {
-            let reading: Reading = std::sync::Arc::new(std::sync::Mutex::new(Err("lendo a cota do Claude…".into())));
+            let reading: Reading = Default::default();
             keep_reading(reading.clone(), cc.egui_ctx.clone());
             Ok(Box::new(App {
                 reading,

@@ -1,13 +1,7 @@
 // Cota do Claude pelo login do Claude Code de terminal.
 // O endereço não é documentado: o mesmo que o /usage do CLI usa.
+use crate::quota::Window;
 use serde_json::Value;
-
-#[derive(Debug, PartialEq)]
-pub struct Window {
-    pub label: String,
-    pub used: f32, // 0.0 a 1.0
-    pub resets_at: Option<String>,
-}
 
 /// Token do arquivo de login, se ainda não venceu (com 1 minuto de folga).
 pub fn usable_token(credentials: &str, now_ms: i64) -> Option<String> {

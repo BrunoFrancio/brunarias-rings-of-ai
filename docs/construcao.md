@@ -52,7 +52,7 @@ A linha de 1 pixel só sumiu com o terceiro ajuste. Antes disso, ela parecia um 
 - O app tira do processo filho as variáveis `CLAUDE*`, porque, rodando de dentro de uma sessão do app desktop, elas mudam o jeito do CLI tratar o login.
 - A resposta tem dois formatos: o novo, com a lista `limits` (`session`, `weekly_all`, `weekly_scoped`), e o antigo, com `five_hour` e `seven_day`. Os dois são lidos.
 - Uma linha de execução separada lê a cota a cada 3 minutos e pede o redesenho. O cartão mostra o percentual e a hora local da renovação, com o `chrono`.
-- `aneis-de-cota --claude` lê uma vez e imprime no terminal, sem abrir a janela.
+- `aneis-de-cota --claude` lê uma vez e imprime no terminal, sem abrir a janela. Em 09/11 virou `--ler`, que lê as duas fontes.
 
 **Testes.** Seis testes em `src/claude.rs`, com dados inventados: token válido, vencido, quase vencendo, ausente ou quebrado, e os dois formatos de resposta. Rodados primeiro contra funções vazias. Três falharam pelo motivo esperado (RED), e os três de recusa passaram porque a função vazia já recusa tudo. Depois da implementação, os seis passaram (GREEN).
 
@@ -86,3 +86,27 @@ A linha de 1 pixel só sumiu com o terceiro ajuste. Antes disso, ela parecia um 
 **A mudança.** Dois segundos depois de cada leitura, o app chama `K32EmptyWorkingSet` em si mesmo. Medido depois disso: 2,4 MB aos 3 s, 7,9 MB aos 30 s, 8,8 MB aos 60 s, 5,7 MB depois de um hover, com o processador em 0,01%. Os anéis e o cartão continuaram desenhando normalmente.
 
 **O que isso não muda.** A memória reservada continua em cerca de 100 MB, quase toda do driver de vídeo. Ela não ocupa RAM enquanto não é usada.
+
+## 09/11/2026: a cota do Codex
+
+**De onde vem.** O Codex grava em cada sessão (`%USERPROFILE%\.codex\sessions\AAAA\MM\DD\rollout-*.jsonl`) um evento `token_count` com `rate_limits`. Cada janela traz `used_percent`, `window_minutes` (300 para 5 horas, 10080 para 7 dias) e `resets_at` em segundos desde 1970. Não precisa de rede nem de login. É a mesma fonte do widget de limites do Brunarias Dock. Só a pasta do Windows é lida, porque o Codex do WSL parou de ser usado em outubro.
+
+**O que foi feito.**
+
+- `src/quota.rs` guarda a janela de cota, comum ao Claude e ao Codex.
+- `src/codex.rs` pega o último `rate_limits` não nulo entre as linhas de uma sessão, ignorando linha quebrada, e transforma cada janela em anel. Lê as 8 sessões mais recentes até achar uma com cota.
+- A linha de execução lê as duas fontes a cada 3 minutos. O erro de uma não esconde a outra: os anéis da que leu aparecem, e o erro da outra vai para o cartão.
+- **Leitura vencida.** O número do Codex só muda quando o Codex roda. Se a hora de renovação já passou, o uso de agora é desconhecido. O anel fica sem arco, com um `?`, e o cartão diz "abra o Codex para atualizar". Nunca aparece um 0% presumido. A regra veio do widget do Dock e vale também para o Claude.
+- A janela passou para 340 x 320. O cartão (268 px), a folga e o trilho somam 332 px, e com 320 o começo do texto saía cortado. Isso vinha de antes e só ficou visível com o cartão mais cheio. O trilho escuro acompanha o número de anéis.
+- `--claude` virou `--ler`, que imprime as duas fontes e marca a leitura vencida.
+
+**Testes.** Sete novos, escritos antes da implementação. Contra funções vazias, quatro falharam pelo motivo esperado (RED). Os outros três passaram porque a função vazia já devolve "nada" ou "não vencida", que era o esperado para eles. Depois da implementação, os 13 do projeto passaram (GREEN). Os valores de data esperados foram calculados à parte, em Python, e não pelo próprio código.
+
+**Conferido no PC de casa.**
+
+- `--ler`: Claude 20% em 5 h e 31% em 7 dias; Codex 9% em 7 dias e a janela de 5 h marcada como vencida (o último uso do Codex foi em 07/11).
+- Captura da borda da tela: quatro anéis, o terceiro com `?`, e o cartão inteiro no hover.
+
+**Memória, medida de novo.** A primeira medida deu 21 MB contra 10 MB da versão anterior, e parecia culpa do Codex. Rodando as duas versões lado a lado por 4 minutos, gastaram o mesmo: sobem cerca de 1 MB a cada 30 s, chegam a 12 a 17 MB antes da leitura seguinte e voltam a 4,5 MB quando o app libera as páginas paradas. A diferença era ruído entre rodadas. A medida de 07/11 ("se firma em 7 a 8 MB") olhou só o primeiro minuto. O ciclo real vai de 4,5 MB a cerca de 15 MB.
+
+**Limite conhecido.** Uso do Codex fora deste Windows não aparece até o Codex rodar aqui de novo.
