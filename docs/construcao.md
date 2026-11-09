@@ -202,3 +202,25 @@ A resposta vem em grupos (Gemini, Claude e GPT, e Gemini 4 Argon), e cada grupo 
 **Testes.** Um teste novo verifica que, das janelas do Antigravity, só as duas do Gemini passam, e que as dos outros agentes não são mexidas. Contra a função sem filtro, ele falhou (RED). Depois da mudança, os 23 passaram (GREEN).
 
 **Conferido na tela.** Trilho aberto com G5h e G7d, e o cartão com as cinco janelas do Antigravity.
+
+## 09/11/2026: estilo de cápsulas
+
+**O pedido.** Bruno pediu para estilizar melhor o trilho e o cartão. Desenhei três propostas com os dados do dia: cápsulas, leve e painel. Ele escolheu cápsulas.
+
+**Trilho.**
+- Cada agente fica numa cápsula própria, com 6 px entre elas, no lugar do trilho único com linhas separando os agentes.
+- O ícone passou de 16 para 18 px.
+- O anel ficou mais grosso, com o fundo num tom fraco da cor do uso e as pontas do arco arredondadas. O traço do egui não arredonda as pontas, então elas são dois círculos.
+- Os rótulos passaram a usar a Segoe UI no lugar da fonte mono.
+
+**Cartão.**
+- Cada janela ocupa uma linha com o nome e a porcentagem em cima, a barra embaixo em toda a largura e, por último, quando a janela renova.
+- Ao lado do nome do agente aparece o maior uso entre as janelas que ainda valem, numa pílula na cor do uso.
+- Janela que já renovou mostra "—" e o aviso para abrir o agente.
+- A janela do app passou de 530 para 640 px de altura, para caber o cartão com dez linhas.
+
+**Ajuste depois da primeira captura.** Com 44 px por linha, o "renova…" ficou mais perto da linha de baixo do que da própria barra. A linha passou a 48 px.
+
+**Testes.** O teste de altura do trilho mudou só nos números, que agora são de cápsulas com espaço entre elas. A regra que ele cobra continua a mesma: com o trilho meio aberto, a altura fica no meio do caminho. São 23 testes passando.
+
+**Conferido na tela.** Repouso, mouse perto e cartão, com os dados reais dos três agentes. A primeira captura parecia ter os estados trocados, mas era só a emenda entre as imagens lidas lado a lado. Uma cópia de tela pelo .NET confirmou.

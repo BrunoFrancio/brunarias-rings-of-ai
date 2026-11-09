@@ -10,16 +10,17 @@ use std::f32::consts::TAU;
 
 const TITLE: &str = "aneis-de-cota";
 const WIDTH: f32 = 340.0; // cartão de 290 + folga de 8 + trilho de 38 + margem
-const HEIGHT: f32 = 530.0; // cabe tudo aberto: 3 janelas do Claude, 2 do Codex e 5 do Antigravity
+const HEIGHT: f32 = 640.0; // cabe o cartão aberto: 3 janelas do Claude, 2 do Codex e 5 do Antigravity
 const RAIL: f32 = 38.0;
 const MARGIN: f32 = 4.0; // entre o trilho e a borda da tela
 const CARD: f32 = 290.0;
-const PAD: f32 = 6.0;
-const ICON: f32 = 16.0;
-const HEADER: f32 = ICON + 5.0;
+const ICON: f32 = 18.0;
+const HEADER: f32 = ICON + 4.0;
+const CAP_TOP: f32 = 7.0; // folga dentro da cápsula, acima do ícone
+const CAP_BOTTOM: f32 = 3.0;
+const GAP: f32 = 6.0; // entre as cápsulas
 const SLOT: f32 = 42.0; // anel de 28 + rótulo + folga
 const SLOT_RESTING: f32 = 32.0; // sem rótulo
-const SEP: f32 = 7.0;
 const RESTING: f32 = 0.45; // opacidade com o mouse longe
 const ALERT: f32 = 0.85;
 const OPENING: f32 = 0.3; // segundos para abrir ou fechar o trilho
@@ -163,20 +164,27 @@ fn usage_color(used: f32) -> Color32 {
 const GRAY: Color32 = Color32::from_rgb(154, 154, 154);
 
 fn ring(painter: &egui::Painter, center: Pos2, w: &quota::Window, stale: bool) {
-    let radius = 11.0;
-    painter.circle_stroke(center, radius, Stroke::new(3.0, Color32::from_white_alpha(36)));
+    let (radius, width) = (12.0, 3.5);
+    // O fundo do anel leva um tom fraco da cor do uso.
+    let track = if stale { Color32::from_white_alpha(36) } else { usage_color(w.used).gamma_multiply(0.22) };
+    painter.circle_stroke(center, radius, Stroke::new(width, track));
     // Janela que já renovou: o uso de agora é desconhecido, então nada de arco.
     if stale {
         painter.text(center, egui::Align2::CENTER_CENTER, "?", FontId::proportional(11.0), GRAY);
         return;
     }
-    let steps = 48;
-    let points: Vec<Pos2> = (0..=((steps as f32 * w.used.min(1.0)) as usize))
-        .map(|i| center + Vec2::angled(-TAU / 4.0 + TAU * i as f32 / steps as f32) * radius)
-        .collect();
-    painter.add(egui::Shape::line(points, Stroke::new(3.0, usage_color(w.used))));
+    let used = w.used.clamp(0.0, 1.0);
+    if used > 0.0 {
+        let color = usage_color(w.used);
+        let n = ((64.0 * used).ceil() as usize).max(1);
+        let points: Vec<Pos2> = (0..=n).map(|i| center + Vec2::angled(-TAU / 4.0 + TAU * used * i as f32 / n as f32) * radius).collect();
+        // Pontas arredondadas, que o traço do egui não faz.
+        painter.circle_filled(points[0], width / 2.0, color);
+        painter.circle_filled(points[n], width / 2.0, color);
+        painter.add(egui::Shape::line(points, Stroke::new(width, color)));
+    }
     let pct = format!("{:.0}", w.used * 100.0);
-    painter.text(center, egui::Align2::CENTER_CENTER, pct, FontId::proportional(9.5), Color32::from_gray(238));
+    painter.text(center, egui::Align2::CENTER_CENTER, pct, FontId::proportional(9.5), TEXT);
 }
 
 // "Claude · 7 dias Opus" → "7 dias Opus".
@@ -234,14 +242,22 @@ fn group_height(source: &Source, open: f32) -> f32 {
     HEADER + source.as_ref().map_or(slot(true, open), |ws| shows_resting(&on_rail(ws)).into_iter().map(|r| slot(r, open)).sum())
 }
 
-fn rail_height(reading: &[Source], open: f32) -> f32 {
-    let groups: f32 = reading.iter().map(|s| group_height(s, open)).sum();
-    2.0 * PAD + groups + SEP * reading.len().saturating_sub(1) as f32
+// Cada agente fica numa cápsula própria.
+fn capsule_height(source: &Source, open: f32) -> f32 {
+    CAP_TOP + group_height(source, open) + CAP_BOTTOM
 }
 
-fn title_font() -> FontId {
-    FontId::new(13.0, FontFamily::Name("semibold".into()))
+fn rail_height(reading: &[Source], open: f32) -> f32 {
+    let capsules: f32 = reading.iter().map(|s| capsule_height(s, open)).sum();
+    capsules + GAP * reading.len().saturating_sub(1) as f32
 }
+
+fn semibold(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("semibold".into()))
+}
+
+const TEXT: Color32 = Color32::from_gray(238);
+const SOFT: Color32 = Color32::from_rgb(141, 141, 144);
 
 impl App {
     fn icon(&self, painter: &egui::Painter, center: Pos2, agent: usize, size: f32) {
@@ -251,21 +267,19 @@ impl App {
     }
 
     fn draw_rail(&self, painter: &egui::Painter, rail: Rect, reading: &[Source], now: chrono::DateTime<chrono::Utc>, open: f32) {
-        let bg = egui::lerp(56.0..=217.0, open) as u8;
-        painter.rect_filled(rail, 12.0, Color32::from_rgba_unmultiplied(18, 18, 20, bg));
+        let fill = Color32::from_rgba_unmultiplied(24, 24, 27, egui::lerp(80.0..=240.0, open) as u8);
+        let border = Stroke::new(1.0, Color32::from_white_alpha(egui::lerp(10.0..=22.0, open) as u8));
         let x = rail.center().x;
-        let mut y = rail.min.y + PAD;
         // O que só existe aberto aparece na segunda metade do movimento, quando já há espaço.
         let late = ((open - 0.5) / 0.5).clamp(0.0, 1.0);
         let painter = painter.with_clip_rect(rail);
+        let mut top = rail.min.y;
         for (i, source) in reading.iter().enumerate() {
-            if i > 0 {
-                let mid = y + SEP / 2.0;
-                painter.line_segment([Pos2::new(x - 10.0, mid), Pos2::new(x + 10.0, mid)], Stroke::new(1.0, Color32::from_white_alpha(30)));
-                y += SEP;
-            }
+            let capsule = Rect::from_min_size(Pos2::new(rail.min.x, top), Vec2::new(RAIL, capsule_height(source, open)));
+            painter.rect(capsule, RAIL / 2.0, fill, border, egui::StrokeKind::Inside);
+            let y = top + CAP_TOP;
             self.icon(&painter, Pos2::new(x, y + ICON / 2.0), i, ICON);
-            y += HEADER;
+            let mut y = y + HEADER;
             match source {
                 Ok(windows) => {
                     let windows = on_rail(windows);
@@ -273,65 +287,73 @@ impl App {
                         let mut faded = painter.clone();
                         faded.set_opacity(painter.opacity() * late);
                         ring(if resting { &painter } else { &faded }, Pos2::new(x, y + 14.0), w, w.stale(now));
-                        faded.text(Pos2::new(x, y + 28.5), egui::Align2::CENTER_TOP, short_name(w), FontId::monospace(9.0), Color32::from_gray(168));
+                        faded.text(Pos2::new(x, y + 28.5), egui::Align2::CENTER_TOP, short_name(w), FontId::proportional(10.0), GRAY);
                         y += slot(resting, open);
                     }
                 }
                 Err(_) => {
                     painter.text(Pos2::new(x, y + 14.0), egui::Align2::CENTER_CENTER, "!", FontId::proportional(13.0), GRAY);
-                    y += slot(true, open);
                 }
             }
+            top = capsule.max.y + GAP;
         }
     }
 
     fn draw_card(&self, painter: &egui::Painter, top_right: Pos2, reading: &[Source], now: chrono::DateTime<chrono::Utc>) {
-        const ROW: f32 = 34.0;
-        const LABEL: f32 = 124.0;
-        let inner = CARD - 28.0;
+        const ROW: f32 = 48.0; // nome e número, barra, quando renova e folga até a próxima
+        const HEAD: f32 = 28.0;
+        const GROUP_GAP: f32 = 10.0;
+        const PAD_X: f32 = 16.0;
+        const PAD_Y: f32 = 14.0;
         let errors: Vec<Option<std::sync::Arc<egui::Galley>>> = reading
             .iter()
-            .map(|s| s.as_ref().err().map(|e| painter.layout(e.clone(), FontId::proportional(12.0), GRAY, inner)))
+            .map(|s| s.as_ref().err().map(|e| painter.layout(e.clone(), FontId::proportional(12.0), GRAY, CARD - 2.0 * PAD_X)))
             .collect();
         let body: f32 = reading
             .iter()
             .zip(&errors)
-            .map(|(s, e)| 22.0 + s.as_ref().map_or_else(|_| e.as_ref().map_or(0.0, |g| g.size().y + 8.0), |ws| ws.len() as f32 * ROW))
+            .map(|(s, e)| HEAD + s.as_ref().map_or_else(|_| e.as_ref().map_or(0.0, |g| g.size().y + 6.0), |ws| ws.len() as f32 * ROW))
             .sum();
-        let height = 20.0 + body + 10.0 * reading.len().saturating_sub(1) as f32;
+        let height = 2.0 * PAD_Y + body + GROUP_GAP * reading.len().saturating_sub(1) as f32 - 6.0;
         let card = Rect::from_min_size(Pos2::new(top_right.x - CARD, top_right.y), Vec2::new(CARD, height));
-        painter.rect(card, 12.0, Color32::from_rgb(29, 30, 33), Stroke::new(0.5, Color32::from_white_alpha(26)), egui::StrokeKind::Inside);
+        painter.rect(card, 14.0, Color32::from_rgb(31, 32, 35), Stroke::new(1.0, Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
 
-        let left = card.min.x + 14.0;
-        let right = card.max.x - 14.0;
-        let mut y = card.min.y + 10.0;
+        let left = card.min.x + PAD_X;
+        let right = card.max.x - PAD_X;
+        let mut y = card.min.y + PAD_Y;
         for (i, source) in reading.iter().enumerate() {
             if i > 0 {
-                painter.line_segment([Pos2::new(left, y + 2.0), Pos2::new(right, y + 2.0)], Stroke::new(1.0, Color32::from_white_alpha(20)));
-                y += 10.0;
+                y += GROUP_GAP;
             }
-            self.icon(painter, Pos2::new(left + 8.0, y + 8.0), i, 16.0);
-            painter.text(Pos2::new(left + 22.0, y + 8.0), egui::Align2::LEFT_CENTER, AGENTS[i].0, title_font(), Color32::from_gray(238));
-            y += 22.0;
+            let mid = y + ICON / 2.0;
+            self.icon(painter, Pos2::new(left + ICON / 2.0, mid), i, ICON);
+            painter.text(Pos2::new(left + ICON + 8.0, mid), egui::Align2::LEFT_CENTER, AGENTS[i].0, semibold(13.0), TEXT);
+            // Ao lado do nome, o maior uso do agente entre as janelas que ainda valem.
+            let top = source.as_ref().ok().and_then(|ws| ws.iter().filter(|w| !w.stale(now)).map(|w| w.used).reduce(f32::max));
+            if let Some(top) = top {
+                let color = usage_color(top);
+                let text = painter.layout_no_wrap(format!("até {:.0}%", top * 100.0), FontId::proportional(11.0), color);
+                let pill = Rect::from_min_max(Pos2::new(right - text.size().x - 16.0, mid - 8.5), Pos2::new(right, mid + 8.5));
+                painter.rect_filled(pill, 8.5, color.gamma_multiply(0.16));
+                painter.galley(pill.center() - text.size() / 2.0, text, color);
+            }
+            y += HEAD;
             match source {
                 Ok(windows) => {
                     for w in windows {
-                        let mid = y + 8.0;
-                        painter.text(Pos2::new(left, mid), egui::Align2::LEFT_CENTER, window_name(w), FontId::proportional(12.0), Color32::from_gray(238));
-                        let sub_pos = Pos2::new(left + LABEL, y + 15.0);
-                        if w.stale(now) {
-                            painter.text(Pos2::new(left + LABEL, mid), egui::Align2::LEFT_CENTER, "já renovou", FontId::proportional(12.0), GRAY);
-                            let hint = format!("abra o {} para atualizar", AGENTS[i].0);
-                            painter.text(sub_pos, egui::Align2::LEFT_TOP, hint, FontId::proportional(11.0), GRAY);
-                        } else {
-                            let bar = Rect::from_min_max(Pos2::new(left + LABEL, mid - 2.5), Pos2::new(right - 36.0, mid + 2.5));
-                            painter.rect_filled(bar, 3.0, Color32::from_white_alpha(26));
-                            let fill = Rect::from_min_max(bar.min, Pos2::new(bar.min.x + bar.width() * w.used.clamp(0.0, 1.0), bar.max.y));
-                            painter.rect_filled(fill, 3.0, usage_color(w.used));
-                            let pct = format!("{:.0}%", w.used * 100.0);
-                            painter.text(Pos2::new(right, mid), egui::Align2::RIGHT_CENTER, pct, FontId::proportional(12.0), Color32::from_gray(238));
-                            painter.text(sub_pos, egui::Align2::LEFT_TOP, renew_line(w, now), FontId::proportional(11.0), GRAY);
+                        let line = y + 7.0;
+                        let stale = w.stale(now);
+                        painter.text(Pos2::new(left, line), egui::Align2::LEFT_CENTER, window_name(w), FontId::proportional(12.0), Color32::from_rgb(214, 214, 215));
+                        let pct = if stale { "—".to_string() } else { format!("{:.0}%", w.used * 100.0) };
+                        painter.text(Pos2::new(right, line), egui::Align2::RIGHT_CENTER, pct, semibold(12.0), if stale { GRAY } else { TEXT });
+                        let bar = Rect::from_min_max(Pos2::new(left, y + 17.0), Pos2::new(right, y + 21.0));
+                        painter.rect_filled(bar, 2.0, Color32::from_white_alpha(20));
+                        if !stale && w.used > 0.0 {
+                            let fill = Rect::from_min_max(bar.min, Pos2::new(bar.min.x + bar.width() * w.used.min(1.0), bar.max.y));
+                            painter.rect_filled(fill, 2.0, usage_color(w.used));
                         }
+                        let sub = if stale { format!("já renovou · abra o {} para atualizar", AGENTS[i].0) } else { renew_line(w, now) };
+                        painter.text(Pos2::new(left, y + 24.0), egui::Align2::LEFT_TOP, sub, FontId::proportional(11.0), SOFT);
                         y += ROW;
                     }
                 }
@@ -339,7 +361,7 @@ impl App {
                     if let Some(g) = &errors[i] {
                         let h = g.size().y;
                         painter.galley(Pos2::new(left, y), g.clone(), GRAY);
-                        y += h + 8.0;
+                        y += h + 6.0;
                     }
                 }
             }
@@ -402,7 +424,7 @@ impl eframe::App for App {
         let mut painter = ui.painter().clone();
         painter.set_opacity(opacity);
         if reading.is_empty() {
-            painter.rect_filled(rail, 12.0, Color32::from_black_alpha(56));
+            painter.rect_filled(rail, RAIL / 2.0, Color32::from_black_alpha(56));
         } else {
             self.draw_rail(&painter, rail, &reading, now, open);
         }
@@ -518,8 +540,9 @@ mod tests {
         let closed = rail_height(&reading, 0.0);
         let half = rail_height(&reading, 0.5);
         let open = rail_height(&reading, 1.0);
-        assert_eq!(closed, 2.0 * PAD + 2.0 * HEADER + 2.0 * SLOT_RESTING + SEP);
-        assert_eq!(open, 2.0 * PAD + 2.0 * HEADER + 3.0 * SLOT + SEP);
+        let capsules = 2.0 * (CAP_TOP + HEADER + CAP_BOTTOM) + GAP;
+        assert_eq!(closed, capsules + 2.0 * SLOT_RESTING);
+        assert_eq!(open, capsules + 3.0 * SLOT);
         assert_eq!(half, (closed + open) / 2.0);
     }
 }
