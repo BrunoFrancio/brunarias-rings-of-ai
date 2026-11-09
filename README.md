@@ -4,7 +4,7 @@ A Windows desktop overlay that shows how much of your Claude Code, Codex, and An
 
 ## Run on Windows
 
-To use a prebuilt copy, put `brunarias-rings-of-ai.exe` in a folder you want to keep and double-click it. The app opens a rail along the right edge of the screen and allows one instance at a time. To start it at sign-in, press **Win+R**, open `shell:startup`, and add a shortcut to the executable.
+Download the Windows x64 executable from [GitHub Releases](https://github.com/BrunoFrancio/brunarias-rings-of-ai/releases/latest). Put `brunarias-rings-of-ai.exe` in a folder you want to keep and double-click it. The app opens a rail along the right edge of the screen and allows one instance at a time. To start it at sign-in, press **Win+R**, open `shell:startup`, and add a shortcut to the executable.
 
 To build it yourself, install Rust with the Windows MSVC toolchain and Visual Studio Build Tools with the **Desktop development with C++** workload. From the repository root, run:
 
