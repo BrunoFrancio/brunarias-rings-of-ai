@@ -19,7 +19,7 @@ const HEADER: f32 = ICON + 4.0;
 const CAP_TOP: f32 = 7.0; // folga dentro da cápsula, acima do ícone
 const CAP_BOTTOM: f32 = 3.0;
 const GAP: f32 = 6.0; // entre as cápsulas
-const SLOT: f32 = 42.0; // anel de 28 + rótulo + folga
+const SLOT: f32 = 48.0; // anel de 28 + rótulo com folga em cima e embaixo
 const SLOT_RESTING: f32 = 32.0; // sem rótulo
 const RESTING: f32 = 0.45; // opacidade com o mouse longe
 const ALERT: f32 = 0.85;
@@ -288,7 +288,7 @@ impl App {
                         let mut faded = painter.clone();
                         faded.set_opacity(painter.opacity() * late);
                         ring(if resting { &painter } else { &faded }, Pos2::new(x, y + 14.0), w, w.stale(now));
-                        faded.text(Pos2::new(x, y + 28.5), egui::Align2::CENTER_TOP, short_name(w), FontId::proportional(10.0), GRAY);
+                        faded.text(Pos2::new(x, y + 31.0), egui::Align2::CENTER_TOP, short_name(w), FontId::proportional(10.0), GRAY);
                         y += slot(resting, open);
                     }
                 }

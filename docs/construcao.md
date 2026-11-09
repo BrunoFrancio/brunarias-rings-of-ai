@@ -242,3 +242,7 @@ Bruno queria o ícone do Antigravity como aparece na barra de tarefas: o quadrad
 **Como ficou.** `codex::after_reset` troca a janela vencida por uma com 0% e sem data de renovação, porque a próxima só se sabe quando o Codex rodar de novo. A troca acontece a cada quadro, então o anel não fica com `?` entre uma leitura e outra. No cartão, essa janela mostra "sem uso desde que renovou". O Antigravity continua com a regra antiga para a última leitura guardada.
 
 **Testes.** Um teste novo verifica que a janela vencida vira 0% sem data e que a semanal, ainda válida, não muda. Contra a função sem a troca, ele falhou (RED). Depois, os 24 passaram (GREEN). Conferido na tela, no trilho e no cartão.
+
+## 09/11/2026: mais espaço nos rótulos do trilho
+
+Bruno achou os rótulos embaixo dos anéis (5h, 7d, G5h) apertados. O rótulo descia só 0,75 px abaixo do anel e terminava colado no anel seguinte. Ele desceu 2,5 px, e cada anel aberto passou de 42 para 48 px de altura. Agora ficam uns 3 px acima do rótulo e uns 5 px abaixo. Os 24 testes continuam passando. O teste de altura usa a constante, então não mudou. Conferido na tela.
