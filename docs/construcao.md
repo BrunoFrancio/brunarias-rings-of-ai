@@ -146,3 +146,39 @@ A linha de 1 pixel só sumiu com o terceiro ajuste. Antes disso, ela parecia um 
 | depois | 454 | 0 | 50 |
 
 Depois da correção, o estilo da janela ficou `96030000` (popup, sem barra de título), e os bits estendidos foram lidos a cada troca: `C0038` fora do trilho (clique passa) e `40018` sobre ele (clique pega). Os 16 testes seguem passando. Não houve teste automático novo: o defeito é da janela do Windows, e a prova é a gravação.
+
+## 09/11/2026: trilho menor e o Antigravity
+
+**O pedido.** Bruno pediu o trilho menor, com só a janela de 5 horas quando ele está apagado, e o Antigravity como terceiro agente. Antes de codar, o desenho foi aprovado numa maquete.
+
+**De onde vem a cota do Antigravity.** Ela não fica em arquivo. Quem responde é o `language_server.exe` que o Antigravity abre, e só enquanto ele está aberto. O caminho é o mesmo do CodexBar (`docs/antigravity.md` do repositório dele):
+
+- achar o processo `language_server*` cuja linha de comando tem `--app_data_dir antigravity`;
+- tirar dela o `--csrf_token`;
+- achar as portas em escuta do processo;
+- chamar `POST https://127.0.0.1:<porta>/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary` com o corpo `{}` e os cabeçalhos `X-Codeium-Csrf-Token` e `Connect-Protocol-Version: 1`.
+
+A resposta vem em grupos (Gemini, Claude e GPT, e Gemini 4 Argon), e cada grupo traz janelas de 5 horas e semanais com `remainingFraction` e `resetTime`. A outra rota, pelo login do Google, foi descartada: um tópico no fórum do Google diz que ela pode levar à suspensão da conta.
+
+**Como ficou no código** (`src/antigravity.rs`):
+
+- A linha de comando de outro processo vem de `NtQueryInformationProcess` com a classe 60 (`ProcessCommandLineInformation`), sem PowerShell e sem ler a memória do outro processo.
+- Os processos vêm do `CreateToolhelp32Snapshot`, e as portas, do `GetExtendedTcpTable`.
+- O servidor usa um certificado próprio em 127.0.0.1, então a verificação de TLS fica desligada só nessa chamada.
+- Na versão 2.21.1, a porta muda e às vezes some por alguns segundos logo depois de abrir. O app tenta todas as portas em escuta do processo.
+- Com o Antigravity fechado, o app mantém a última leitura boa. A regra da leitura vencida cuida dela quando a janela renova. Se o app abrir com o Antigravity fechado, aparece "abra o Antigravity para ler a cota".
+- No protobuf, um valor zero some do JSON. Por isso, `remainingFraction` ausente conta como cota esgotada.
+
+**Trilho menor.** O trilho passou de 52 para 38 px e os anéis, de 38 para 28. Em repouso aparece só a janela de 5 horas de cada agente, sem rótulos. Com o mouse perto, ou com alguma cota acima de 85%, aparecem todas as janelas. No Antigravity, o rótulo leva a inicial do grupo: G5h, G7d, C5h, C7d e A7d. O cartão ficou com 290 px, para caber "Gemini 4 Argon 7 dias".
+
+**Um defeito achado no caminho.** Logo depois de abrir, a posição da janela que o egui informa ainda é a padrão, no canto superior esquerdo. Com o cursor parado ali, o trilho abria sozinho. A posição agora vem do `GetWindowRect`.
+
+**Testes.** Cinco novos em `src/antigravity.rs`, escritos antes. Contra funções vazias, três falharam (RED). Os dois de recusa passaram porque a função vazia já recusa tudo. Depois da implementação, os 21 do projeto passaram (GREEN).
+
+**Conferido no PC de casa.**
+
+- `--ler` com o Antigravity aberto: cinco janelas, com Gemini e Claude e GPT em 0% e Argon em 9%, em 0,6 s.
+- `--ler` com o Antigravity fechado: a mensagem para abrir.
+- Captura dos três estados: repouso com só a janela de 5 h, mouse perto com tudo aberto, e cartão.
+- Memória: 7,3 MB aos 10 s, 8,4 MB aos 30 s e 9,6 MB aos 60 s.
+- **Não conferido na tela:** o app mantendo a última leitura depois de o Antigravity fechar, porque o ciclo de leitura é de 3 minutos.
