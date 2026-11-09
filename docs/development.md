@@ -177,5 +177,3 @@ Bruno asked to restore the v0.2.0 rail. The overlay source matches that release 
 ## 2026-11-09 — One quota window per provider
 
 The slim black rail sits flush with the right edge and shows each provider's short window. A current weekly window above 90% takes its place. The hover card continues to show all windows. The selection test failed on the previous behavior and passed after the change. All 29 tests passed, and the rail and Claude hover card were checked on Windows.
-
-The rail ends now curve into the screen edge, following the reference while keeping the rail on the right. Both ends were checked on screen in Windows. All 29 tests passed.

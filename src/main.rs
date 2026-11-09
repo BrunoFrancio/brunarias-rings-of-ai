@@ -175,27 +175,8 @@ impl App {
     }
 
     fn draw_rail(&self, painter: &egui::Painter, rail: Rect, reading: &[Source], now: chrono::DateTime<chrono::Utc>) {
-        painter.rect_filled(rail, 0.0, Color32::BLACK);
-        let mut ends = egui::Mesh::default();
-        const STEPS: u32 = 16;
-        const LENGTH: f32 = 18.0;
-        for (edge, direction) in [(rail.top(), -1.0), (rail.bottom(), 1.0)] {
-            let base = ends.vertices.len() as u32;
-            for step in 0..=STEPS {
-                let t = step as f32 / STEPS as f32;
-                let curve = t * t * (3.0 - 2.0 * t);
-                let y = edge + direction * LENGTH * t;
-                let left = egui::lerp(rail.left()..=rail.right(), curve);
-                ends.colored_vertex(Pos2::new(left, y), Color32::BLACK);
-                ends.colored_vertex(Pos2::new(rail.right(), y), Color32::BLACK);
-                if step > 0 {
-                    let v = base + step * 2;
-                    ends.add_triangle(v - 2, v - 1, v);
-                    ends.add_triangle(v - 1, v + 1, v);
-                }
-            }
-        }
-        painter.add(egui::Shape::mesh(ends));
+        let corners = egui::CornerRadius { nw: 12, sw: 12, ne: 0, se: 0 };
+        painter.rect_filled(rail, corners, Color32::BLACK);
         let x = rail.center().x;
         for (i, source) in reading.iter().enumerate() {
             let y = rail.min.y + i as f32 * (SLOT + GAP);
