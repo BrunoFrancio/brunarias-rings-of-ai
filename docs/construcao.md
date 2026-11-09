@@ -228,3 +228,7 @@ A resposta vem em grupos (Gemini, Claude e GPT, e Gemini 4 Argon), e cada grupo 
 ## 09/11/2026: minutos com dois dígitos
 
 Em "renova em 3 h 4", o minuto aparecia com um dígito só. Agora aparece "em 3 h 04". Antes de mudar o código, entrou no teste de `renew_text` um caso para 3 h 04, e ele falhou com "em 3 h 4" (RED). Depois da mudança, os 23 testes passaram (GREEN). Na tela, os casos de agora ("em 3 h" e "em 4 h 59") aparecem certos. Nenhuma janela tinha minuto abaixo de 10 na hora da captura, então o caso de dois dígitos foi conferido só pelo teste.
+
+## 09/11/2026: ícone do Antigravity arredondado
+
+Bruno queria o ícone do Antigravity como aparece na barra de tarefas: o quadrado branco com os cantos arredondados e o A no meio. O arquivo de antes tinha sido recortado rente ao A, então perdeu os cantos e, com 18 px, virava um quadrado branco. O novo vem do próprio `Antigravity.exe`, extraído em 256 px com `PrivateExtractIcons` e reduzido para 48 px sem cortar a borda. Conferido na tela, no trilho.
