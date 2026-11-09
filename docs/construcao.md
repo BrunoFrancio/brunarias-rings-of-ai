@@ -192,3 +192,13 @@ A resposta vem em grupos (Gemini, Claude e GPT, e Gemini 4 Argon), e cada grupo 
 **Testes.** Um teste novo diz que a altura com o trilho meio aberto fica no meio do caminho. Contra a versão antiga, a altura no meio ainda era a de fechado: 125 contra os 156 esperados (RED). Depois da mudança, os 22 passaram (GREEN).
 
 **Conferido.** Gravação a 60 quadros por segundo: abrindo e fechando, o trilho passa por uns dez tamanhos intermediários em cerca de 0,3 s.
+
+## 09/11/2026: só o Gemini no trilho do Antigravity
+
+**O pedido.** Bruno pediu para deixar só o Gemini no trilho do Antigravity: a janela de 5 horas e a da semana. Claude e GPT e o Gemini 4 Argon saem do trilho, mas continuam no cartão.
+
+**Como ficou.** A função `on_rail` filtra as janelas antes de o trilho calcular a altura e desenhar. O cartão continua lendo a lista inteira. Em repouso, o Antigravity mostra só o Gemini 5 h. Aberto, mostra G5h e G7d.
+
+**Testes.** Um teste novo verifica que, das janelas do Antigravity, só as duas do Gemini passam, e que as dos outros agentes não são mexidas. Contra a função sem filtro, ele falhou (RED). Depois da mudança, os 23 passaram (GREEN).
+
+**Conferido na tela.** Trilho aberto com G5h e G7d, e o cartão com as cinco janelas do Antigravity.

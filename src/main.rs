@@ -201,6 +201,13 @@ fn short_name(w: &quota::Window) -> String {
     initial + &window
 }
 
+// Janelas que vão para o trilho. O cartão mostra todas.
+// Do Antigravity, só o grupo Gemini, a pedido do Bruno.
+fn on_rail(windows: &[quota::Window]) -> Vec<quota::Window> {
+    let gemini = ["Antigravity · Gemini 5 h", "Antigravity · Gemini 7 dias"];
+    windows.iter().filter(|w| !w.label.starts_with("Antigravity") || gemini.contains(&w.label.as_str())).cloned().collect()
+}
+
 // Em repouso, só a janela de 5 horas de cada agente.
 // Se um agente não tiver janela de 5 horas, fica a primeira que houver.
 fn shows_resting(windows: &[quota::Window]) -> Vec<bool> {
@@ -224,7 +231,7 @@ fn slot(resting: bool, open: f32) -> f32 {
 }
 
 fn group_height(source: &Source, open: f32) -> f32 {
-    HEADER + source.as_ref().map_or(slot(true, open), |ws| shows_resting(ws).into_iter().map(|r| slot(r, open)).sum())
+    HEADER + source.as_ref().map_or(slot(true, open), |ws| shows_resting(&on_rail(ws)).into_iter().map(|r| slot(r, open)).sum())
 }
 
 fn rail_height(reading: &[Source], open: f32) -> f32 {
@@ -261,7 +268,8 @@ impl App {
             y += HEADER;
             match source {
                 Ok(windows) => {
-                    for (w, resting) in windows.iter().zip(shows_resting(windows)) {
+                    let windows = on_rail(windows);
+                    for (w, resting) in windows.iter().zip(shows_resting(&windows)) {
                         let mut faded = painter.clone();
                         faded.set_opacity(painter.opacity() * late);
                         ring(if resting { &painter } else { &faded }, Pos2::new(x, y + 14.0), w, w.stale(now));
@@ -489,6 +497,19 @@ mod tests {
 
     fn window(label: &str) -> quota::Window {
         quota::Window { label: label.into(), used: 0.1, resets_at: None }
+    }
+
+    #[test]
+    fn antigravity_rail_keeps_only_gemini() {
+        let windows = [
+            window("Antigravity · Gemini 5 h"),
+            window("Antigravity · Gemini 7 dias"),
+            window("Antigravity · Claude e GPT 5 h"),
+            window("Antigravity · Gemini 4 Argon 7 dias"),
+            window("Claude · 7 dias Opus"),
+        ];
+        let labels: Vec<String> = on_rail(&windows).into_iter().map(|w| w.label).collect();
+        assert_eq!(labels, ["Antigravity · Gemini 5 h", "Antigravity · Gemini 7 dias", "Claude · 7 dias Opus"]);
     }
 
     #[test]
