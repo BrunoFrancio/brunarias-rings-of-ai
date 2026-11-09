@@ -182,3 +182,13 @@ A resposta vem em grupos (Gemini, Claude e GPT, e Gemini 4 Argon), e cada grupo 
 - Captura dos três estados: repouso com só a janela de 5 h, mouse perto com tudo aberto, e cartão.
 - Memória: 7,3 MB aos 10 s, 8,4 MB aos 30 s e 9,6 MB aos 60 s.
 - **Não conferido na tela:** o app mantendo a última leitura depois de o Antigravity fechar, porque o ciclo de leitura é de 3 minutos.
+
+## 09/11/2026: abrir e fechar suave
+
+**O pedido.** Bruno pediu que o trilho abrisse suave. Antes, só a opacidade era animada. A altura e os anéis extras trocavam de uma vez.
+
+**Como ficou.** Um valor só, de 0 (fechado) a 1 (aberto), anima em 0,3 s, acelerando e freando (`cubic_in_out` do egui). Altura, fundo e opacidade seguem esse valor. O anel que só aparece aberto nasce com altura zero e vai empurrando os de baixo. Ele e os rótulos só aparecem na segunda metade do movimento, quando já existe espaço, e o desenho é recortado no contorno do trilho.
+
+**Testes.** Um teste novo diz que a altura com o trilho meio aberto fica no meio do caminho. Contra a versão antiga, a altura no meio ainda era a de fechado: 125 contra os 156 esperados (RED). Depois da mudança, os 22 passaram (GREEN).
+
+**Conferido.** Gravação a 60 quadros por segundo: abrindo e fechando, o trilho passa por uns dez tamanhos intermediários em cerca de 0,3 s.

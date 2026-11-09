@@ -22,6 +22,7 @@ const SLOT_RESTING: f32 = 32.0; // sem rótulo
 const SEP: f32 = 7.0;
 const RESTING: f32 = 0.45; // opacidade com o mouse longe
 const ALERT: f32 = 0.85;
+const OPENING: f32 = 0.3; // segundos para abrir ou fechar o trilho
 
 // Agentes na ordem do trilho. O ícone é o do app instalado de cada um.
 const AGENTS: [(&str, &[u8]); 3] = [
@@ -202,12 +203,10 @@ fn short_name(w: &quota::Window) -> String {
 
 // Em repouso, só a janela de 5 horas de cada agente.
 // Se um agente não tiver janela de 5 horas, fica a primeira que houver.
-fn visible(windows: &[quota::Window], expanded: bool) -> Vec<&quota::Window> {
-    if expanded {
-        return windows.iter().collect();
-    }
-    let five: Vec<&quota::Window> = windows.iter().filter(|w| window_name(w).ends_with("5 h")).collect();
-    if five.is_empty() { windows.iter().take(1).collect() } else { five }
+fn shows_resting(windows: &[quota::Window]) -> Vec<bool> {
+    let five = |w: &quota::Window| window_name(w).ends_with("5 h");
+    let any_five = windows.iter().any(five);
+    windows.iter().enumerate().map(|(i, w)| if any_five { five(w) } else { i == 0 }).collect()
 }
 
 fn renew_line(w: &quota::Window, now: chrono::DateTime<chrono::Utc>) -> String {
@@ -218,16 +217,18 @@ fn renew_line(w: &quota::Window, now: chrono::DateTime<chrono::Utc>) -> String {
         .unwrap_or_default()
 }
 
-fn slot(expanded: bool) -> f32 {
-    if expanded { SLOT } else { SLOT_RESTING }
+// Altura de um anel no trilho, de fechado (0) a aberto (1). O anel que só
+// aparece aberto nasce com altura zero e empurra os de baixo aos poucos.
+fn slot(resting: bool, open: f32) -> f32 {
+    if resting { egui::lerp(SLOT_RESTING..=SLOT, open) } else { SLOT * open }
 }
 
-fn group_height(source: &Source, expanded: bool) -> f32 {
-    HEADER + source.as_ref().map_or(slot(expanded), |ws| visible(ws, expanded).len() as f32 * slot(expanded))
+fn group_height(source: &Source, open: f32) -> f32 {
+    HEADER + source.as_ref().map_or(slot(true, open), |ws| shows_resting(ws).into_iter().map(|r| slot(r, open)).sum())
 }
 
-fn rail_height(reading: &[Source], expanded: bool) -> f32 {
-    let groups: f32 = reading.iter().map(|s| group_height(s, expanded)).sum();
+fn rail_height(reading: &[Source], open: f32) -> f32 {
+    let groups: f32 = reading.iter().map(|s| group_height(s, open)).sum();
     2.0 * PAD + groups + SEP * reading.len().saturating_sub(1) as f32
 }
 
@@ -242,32 +243,35 @@ impl App {
         painter.image(self.icons[agent].id(), rect, uv, Color32::WHITE);
     }
 
-    fn draw_rail(&self, painter: &egui::Painter, rail: Rect, reading: &[Source], now: chrono::DateTime<chrono::Utc>, lit: f32, expanded: bool) {
-        let bg = egui::lerp(56.0..=217.0, lit) as u8;
+    fn draw_rail(&self, painter: &egui::Painter, rail: Rect, reading: &[Source], now: chrono::DateTime<chrono::Utc>, open: f32) {
+        let bg = egui::lerp(56.0..=217.0, open) as u8;
         painter.rect_filled(rail, 12.0, Color32::from_rgba_unmultiplied(18, 18, 20, bg));
         let x = rail.center().x;
         let mut y = rail.min.y + PAD;
+        // O que só existe aberto aparece na segunda metade do movimento, quando já há espaço.
+        let late = ((open - 0.5) / 0.5).clamp(0.0, 1.0);
+        let painter = painter.with_clip_rect(rail);
         for (i, source) in reading.iter().enumerate() {
             if i > 0 {
                 let mid = y + SEP / 2.0;
                 painter.line_segment([Pos2::new(x - 10.0, mid), Pos2::new(x + 10.0, mid)], Stroke::new(1.0, Color32::from_white_alpha(30)));
                 y += SEP;
             }
-            self.icon(painter, Pos2::new(x, y + ICON / 2.0), i, ICON);
+            self.icon(&painter, Pos2::new(x, y + ICON / 2.0), i, ICON);
             y += HEADER;
             match source {
                 Ok(windows) => {
-                    for w in visible(windows, expanded) {
-                        ring(painter, Pos2::new(x, y + 14.0), w, w.stale(now));
-                        if expanded {
-                            painter.text(Pos2::new(x, y + 28.5), egui::Align2::CENTER_TOP, short_name(w), FontId::monospace(9.0), Color32::from_gray(168));
-                        }
-                        y += slot(expanded);
+                    for (w, resting) in windows.iter().zip(shows_resting(windows)) {
+                        let mut faded = painter.clone();
+                        faded.set_opacity(painter.opacity() * late);
+                        ring(if resting { &painter } else { &faded }, Pos2::new(x, y + 14.0), w, w.stale(now));
+                        faded.text(Pos2::new(x, y + 28.5), egui::Align2::CENTER_TOP, short_name(w), FontId::monospace(9.0), Color32::from_gray(168));
+                        y += slot(resting, open);
                     }
                 }
                 Err(_) => {
                     painter.text(Pos2::new(x, y + 14.0), egui::Align2::CENTER_CENTER, "!", FontId::proportional(13.0), GRAY);
-                    y += slot(expanded);
+                    y += slot(true, open);
                 }
             }
         }
@@ -359,7 +363,7 @@ impl eframe::App for App {
         let alert = reading.iter().flatten().flatten().any(|w| !w.stale(now) && w.used >= ALERT);
         // A altura do teste de proximidade é a do trilho aberto, para ele não fechar
         // enquanto o mouse desce pelos anéis que acabaram de aparecer.
-        let full_height = rail_height(&reading, true);
+        let full_height = rail_height(&reading, 1.0);
 
         // Com o clique passando, a janela não recebe hover. O cursor e a posição da
         // janela vêm do Windows: a do egui fica velha logo depois de abrir.
@@ -379,11 +383,11 @@ impl eframe::App for App {
 
         // Discreto em repouso, só com a janela de 5 horas; acende e abre tudo
         // com o mouse perto ou com alguma cota alta.
-        let expanded = near || alert;
-        let height = rail_height(&reading, expanded);
-        let target = if expanded { 1.0 } else { RESTING };
-        let opacity = ctx.animate_value_with_time(egui::Id::unique("opacidade"), target, 0.25);
-        let lit = (opacity - RESTING) / (1.0 - RESTING);
+        // Altura, opacidade e anéis extras seguem o mesmo movimento, que acelera
+        // e freia suave.
+        let open = ctx.animate_bool_with_time_and_easing(egui::Id::unique("aberto"), near || alert, OPENING, egui::emath::easing::cubic_in_out);
+        let height = rail_height(&reading, open);
+        let opacity = egui::lerp(RESTING..=1.0, open);
 
         let rect = ui.max_rect();
         let rail = Rect::from_min_size(Pos2::new(rect.max.x - MARGIN - RAIL, rect.min.y), Vec2::new(RAIL, height));
@@ -392,7 +396,7 @@ impl eframe::App for App {
         if reading.is_empty() {
             painter.rect_filled(rail, 12.0, Color32::from_black_alpha(56));
         } else {
-            self.draw_rail(&painter, rail, &reading, now, lit, expanded);
+            self.draw_rail(&painter, rail, &reading, now, open);
         }
         if hovering_rail && !reading.is_empty() {
             self.draw_card(ui.painter(), Pos2::new(rail.min.x - 8.0, rail.min.y), &reading, now);
@@ -477,4 +481,24 @@ fn main() -> eframe::Result {
             }))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window(label: &str) -> quota::Window {
+        quota::Window { label: label.into(), used: 0.1, resets_at: None }
+    }
+
+    #[test]
+    fn rail_grows_smoothly_between_resting_and_open() {
+        let reading: Vec<Source> = vec![Ok(vec![window("Claude · 5 h"), window("Claude · 7 dias")]), Err("fechado".into())];
+        let closed = rail_height(&reading, 0.0);
+        let half = rail_height(&reading, 0.5);
+        let open = rail_height(&reading, 1.0);
+        assert_eq!(closed, 2.0 * PAD + 2.0 * HEADER + 2.0 * SLOT_RESTING + SEP);
+        assert_eq!(open, 2.0 * PAD + 2.0 * HEADER + 3.0 * SLOT + SEP);
+        assert_eq!(half, (closed + open) / 2.0);
+    }
 }
