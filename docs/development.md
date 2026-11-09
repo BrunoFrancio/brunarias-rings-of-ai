@@ -165,3 +165,7 @@ Bruno requested English labels and documentation. Quota names, reset text, and e
 Bruno chose the visual reference from [Pulse PR #109](https://github.com/qunqin24/Pulse/pull/109). The Windows overlay uses a single dark rail, provider icons inside the rings, and usage percentages below them. Hovering over an agent opens a compact card with that agent's windows, usage bars, and reset times. Proximity still reveals additional windows and the existing alert keeps the rail expanded.
 
 The hover-selection test failed before implementation and passed afterward with the full 28-test suite. A Windows screen capture confirmed the dark rail, live percentages, and the Claude usage card beside its rings.
+
+## 2026-11-09 — One rail icon per provider
+
+Each provider displays its icon only on its primary ring. Additional windows retain their percentages and labels. All 28 tests passed, and the expanded rail was checked on Windows with all three providers.
